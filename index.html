@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
 <meta name="theme-color" content="#410207"/>
-<title>Roberto's Kitchen</title>h
+<title>Roberto's Kitchen</title>
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" href="icon.svg" type="image/svg+xml"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -47,7 +47,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .stab{flex-shrink:0;padding:9px 14px 8px;font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--vino);background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-bottom:none;border-radius:4px 4px 0 0;cursor:pointer;white-space:nowrap;transition:background .15s,color .15s;font-family:var(--font-sans)}
 .stab.active{background:var(--vino);color:var(--cream);border-color:var(--vino)}
 .stab.pass-tab.active{background:var(--pomodoro);border-color:var(--pomodoro);color:#fff}
-.stab.report-tab{display:none!important}
+.stab.report-tab.active{background:var(--oliva);border-color:var(--oliva);color:#fff}
 .stab:hover:not(.active){background:var(--sabbia-dark)}
 .stab-badge{display:inline-block;margin-left:4px;font-size:8px;font-weight:600;padding:1px 5px;border-radius:2px;vertical-align:middle}
 .tb-sos{background:#cc0000;color:#fff}.tb-bu{background:#c49200;color:#fff}
@@ -255,7 +255,9 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 </div>
 
 <div id="pass-view" class="pass-view" style="display:none"></div>
-
+<div id="report-view" class="report-view" style="display:none">
+  <div class="report-header">
+    <div class="report-title">Service Reports</div>
     <div class="report-subtitle">SOS · BU · OK history by date</div>
   </div>
   <div class="report-controls">
@@ -325,7 +327,7 @@ async function init() {
   renderTabs();
   switchStation(PASS_KEY);
   document.getElementById('loading').classList.add('hidden');
-  document.  // report-view removed
+  document.getElementById('report-date').value = TODAY;
 }
 
 // ── LOAD PREP LIST FROM SUPABASE ──
@@ -417,10 +419,10 @@ function stationCounts(st) {
 
 // ── TABS ──
 function renderTabs() {
-  const tabs=[{key:PASS_KEY,label:'The Pass',pass:true},...STATIONS];
+  const tabs=[{key:PASS_KEY,label:'The Pass',pass:true},{key:REPORT_KEY,label:'Reports',report:true},...STATIONS];
   document.getElementById('section-tabs').innerHTML=tabs.map(t=>{
     if(t.pass){const c=allCounts();const sb=c.sos>0?`<span class="stab-badge tb-sos">${c.sos}</span>`:'';return `<button class="stab pass-tab${activeStation===PASS_KEY?' active':''}" onclick="switchStation('${PASS_KEY}')">${t.label}${sb}</button>`;}
-    
+    if(t.report){return `<button class="stab report-tab${activeStation===REPORT_KEY?' active':''}" onclick="switchStation('${REPORT_KEY}')">Reports</button>`;}
     const c=stationCounts(t);
     const sb2=c.sos>0?`<span class="stab-badge tb-sos">${c.sos}</span>`:'';
     const bb=c.bu>0?`<span class="stab-badge tb-bu">${c.bu}</span>`:'';
@@ -463,7 +465,7 @@ function renderPassView() {
 async function loadReport() {
   const date = document.getElementById('report-date').value;
   if (!date) return;
-  const el = document.  // report-date removed
+  const el = document.getElementById('report-content');
   el.innerHTML = '<div class="report-no-data">Loading...</div>';
   const { data: logs } = await sb.from('prep_status_log').select('*').eq('service_date', date).order('logged_at', {ascending: false});
   if (!logs || logs.length === 0) { el.innerHTML = `<div class="report-no-data">No data recorded for ${date}</div>`; return; }
@@ -664,14 +666,14 @@ function switchStation(key){
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY,isReport=key===REPORT_KEY,isStation=!isPass&&!isReport;
   document.getElementById('pass-view').style.display=isPass?'block':'none';
-  // report-view hidden
+  document.getElementById('report-view').style.display=isReport?'block':'none';
   document.getElementById('content').style.display=isStation?'block':'none';
   document.getElementById('legend-bar').style.display=isStation?'flex':'none';
   document.getElementById('sec-counter-wrap').style.display=isStation?'block':'none';
   document.getElementById('add-section-wrap').style.display=isStation?'block':'none';
   document.getElementById('foot-label').textContent=isPass?'The Pass · All stations':isReport?'Reports':'';
   if(isPass)renderPassView();
-  
+  else if(isReport){/* report loads on demand */}
   else{if(document.getElementById('add-dish-section'))document.getElementById('add-dish-section').value=key;updateSubsectionSelect();renderCounter();renderContent();}
   renderTabs();
 }
