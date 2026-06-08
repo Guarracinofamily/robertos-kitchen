@@ -6,7 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
 <meta name="theme-color" content="#410207"/>
-<title>Roberto's Kitchen</title>
+<title>Roberto's Kitchen</title>h
 <link rel="manifest" href="manifest.json"/>
 <link rel="icon" href="icon.svg" type="image/svg+xml"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -255,9 +255,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 </div>
 
 <div id="pass-view" class="pass-view" style="display:none"></div>
-<div id="report-view" class="report-view" style="display:none">
-  <div class="report-header">
-    <div class="report-title">Service Reports</div>
+
     <div class="report-subtitle">SOS · BU · OK history by date</div>
   </div>
   <div class="report-controls">
@@ -419,7 +417,7 @@ function stationCounts(st) {
 
 // ── TABS ──
 function renderTabs() {
-  const tabs=[{key:PASS_KEY,label:'The Pass',pass:true},{key:REPORT_KEY,label:'Reports',report:true},...STATIONS];
+  const tabs=[{key:PASS_KEY,label:'The Pass',pass:true},...STATIONS];
   document.getElementById('section-tabs').innerHTML=tabs.map(t=>{
     if(t.pass){const c=allCounts();const sb=c.sos>0?`<span class="stab-badge tb-sos">${c.sos}</span>`:'';return `<button class="stab pass-tab${activeStation===PASS_KEY?' active':''}" onclick="switchStation('${PASS_KEY}')">${t.label}${sb}</button>`;}
     if(t.report){return `<button class="stab report-tab${activeStation===REPORT_KEY?' active':''}" onclick="switchStation('${REPORT_KEY}')">Reports</button>`;}
@@ -673,7 +671,7 @@ function switchStation(key){
   document.getElementById('add-section-wrap').style.display=isStation?'block':'none';
   document.getElementById('foot-label').textContent=isPass?'The Pass · All stations':isReport?'Reports':'';
   if(isPass)renderPassView();
-  else if(isReport){/* report loads on demand */}
+  
   else{if(document.getElementById('add-dish-section'))document.getElementById('add-dish-section').value=key;updateSubsectionSelect();renderCounter();renderContent();}
   renderTabs();
 }
