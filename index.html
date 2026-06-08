@@ -325,7 +325,7 @@ async function init() {
   renderTabs();
   switchStation(PASS_KEY);
   document.getElementById('loading').classList.add('hidden');
-  document.getElementById('report-date').value = TODAY;
+  document.  // report-view removed
 }
 
 // ── LOAD PREP LIST FROM SUPABASE ──
@@ -463,7 +463,7 @@ function renderPassView() {
 async function loadReport() {
   const date = document.getElementById('report-date').value;
   if (!date) return;
-  const el = document.getElementById('report-content');
+  const el = document.  // report-date removed
   el.innerHTML = '<div class="report-no-data">Loading...</div>';
   const { data: logs } = await sb.from('prep_status_log').select('*').eq('service_date', date).order('logged_at', {ascending: false});
   if (!logs || logs.length === 0) { el.innerHTML = `<div class="report-no-data">No data recorded for ${date}</div>`; return; }
@@ -664,7 +664,7 @@ function switchStation(key){
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY,isReport=key===REPORT_KEY,isStation=!isPass&&!isReport;
   document.getElementById('pass-view').style.display=isPass?'block':'none';
-  document.getElementById('report-view').style.display=isReport?'block':'none';
+  // report-view hidden
   document.getElementById('content').style.display=isStation?'block':'none';
   document.getElementById('legend-bar').style.display=isStation?'flex':'none';
   document.getElementById('sec-counter-wrap').style.display=isStation?'block':'none';
