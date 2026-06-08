@@ -47,7 +47,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .stab{flex-shrink:0;padding:9px 14px 8px;font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:var(--vino);background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-bottom:none;border-radius:4px 4px 0 0;cursor:pointer;white-space:nowrap;transition:background .15s,color .15s;font-family:var(--font-sans)}
 .stab.active{background:var(--vino);color:var(--cream);border-color:var(--vino)}
 .stab.pass-tab.active{background:var(--pomodoro);border-color:var(--pomodoro);color:#fff}
-.stab.report-tab.active{background:var(--oliva);border-color:var(--oliva);color:#fff}
+.stab.report-tab{display:none!important}
 .stab:hover:not(.active){background:var(--sabbia-dark)}
 .stab-badge{display:inline-block;margin-left:4px;font-size:8px;font-weight:600;padding:1px 5px;border-radius:2px;vertical-align:middle}
 .tb-sos{background:#cc0000;color:#fff}.tb-bu{background:#c49200;color:#fff}
@@ -420,7 +420,7 @@ function renderTabs() {
   const tabs=[{key:PASS_KEY,label:'The Pass',pass:true},...STATIONS];
   document.getElementById('section-tabs').innerHTML=tabs.map(t=>{
     if(t.pass){const c=allCounts();const sb=c.sos>0?`<span class="stab-badge tb-sos">${c.sos}</span>`:'';return `<button class="stab pass-tab${activeStation===PASS_KEY?' active':''}" onclick="switchStation('${PASS_KEY}')">${t.label}${sb}</button>`;}
-    if(t.report){return `<button class="stab report-tab${activeStation===REPORT_KEY?' active':''}" onclick="switchStation('${REPORT_KEY}')">Reports</button>`;}
+    
     const c=stationCounts(t);
     const sb2=c.sos>0?`<span class="stab-badge tb-sos">${c.sos}</span>`:'';
     const bb=c.bu>0?`<span class="stab-badge tb-bu">${c.bu}</span>`:'';
