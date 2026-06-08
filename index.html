@@ -254,8 +254,9 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   </div>
 </div>
 
+<div id="report-view" style="display:none"></div>
 <div id="pass-view" class="pass-view" style="display:none"></div>
-<div id="report-view" style="display:none"></div>    <div class="report-subtitle">SOS · BU · OK history by date</div>
+    <div class="report-subtitle">SOS · BU · OK history by date</div>
   </div>
   <div class="report-controls">
     <div class="report-date-field">
@@ -661,21 +662,23 @@ function undoDelete(){
 // ── SWITCH STATION ──
 function switchStation(key){
   activeStation=key;activeFilter=null;
-  const isPass=key===PASS_KEY,isReport=false,isStation=!isPass;
-  document.getElementById('pass-view').style.display=isPass?'block':'none';
-  var rv=document.getElementById('report-view');if(rv)rv.style.display='none';
-  document.getElementById('content').style.display=isStation?'block':'none';
-  document.getElementById('legend-bar').style.display=isStation?'flex':'none';
-  document.getElementById('sec-counter-wrap').style.display=isStation?'block':'none';
-  document.getElementById('add-section-wrap').style.display=isStation?'block':'none';
-  document.getElementById('foot-label').textContent=isPass?'The Pass · All stations':'';
-  if(isPass)renderPassView();
-  
-  else{if(document.getElementById('add-dish-section'))document.getElementById('add-dish-section').value=key;updateSubsectionSelect();renderCounter();renderContent();}
+  const isPass=key===PASS_KEY;
+  ['pass-view','report-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+    var el=document.getElementById(id);if(el)el.style.display='none';
+  });
+  if(isPass){
+    var pv=document.getElementById('pass-view');if(pv)pv.style.display='block';
+    document.getElementById('foot-label').textContent='The Pass · All stations';
+    renderPassView();
+  } else {
+    var show={'content':'block','legend-bar':'flex','sec-counter-wrap':'block','add-section-wrap':'block'};
+    Object.keys(show).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=show[id];});
+    document.getElementById('foot-label').textContent='';
+    var ss=document.getElementById('add-dish-section');if(ss)ss.value=key;
+    updateSubsectionSelect();renderCounter();renderContent();
+  }
   renderTabs();
 }
-
-// ── ADD DISH ──
 function populateSelects(){
   if(!STATIONS.length)return;
   const stSel=document.getElementById('add-dish-section');
