@@ -462,11 +462,40 @@ function renderStationChecks(stKey){
 
 // â”€â”€ DASHBOARD â”€â”€
 function statusLabel(s){return {none:'Pending',sos:'SOS',bu:'Backup',ok:'OK',review:'To check',discard:'Discard'}[s]||s;}
-function renderDashboard(){
+// Covers data loaded from Supabase
+let dashCovers = {};
+
+async function loadCovers() {
+  const { data } = await sb.from('covers').select('*').gte('service_date', TODAY).order('service_date');
+  dashCovers = {};
+  if (data) data.forEach(function(r){ dashCovers[r.service_date] = r; });
+}
+
+async function renderDashboard(){
+  await loadCovers();
   const prep=allCounts();
   const checks=allCheckCounts();
   const ready=prep.total?Math.round(prep.ok/prep.total*100):0;
   const critical=criticalRows();
+
+  // Tonight's covers
+  const tonight = dashCovers[TODAY];
+  const nightCovers = tonight ? tonight.night_covers : null;
+  const coversUpdated = tonight ? new Date(tonight.updated_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : null;
+
+  // Next 6 days covers
+  const upcomingDays = [];
+  for (var di = 0; di < 7; di++) {
+    var d = new Date(); d.setDate(d.getDate() + di);
+    var ds = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    var row = dashCovers[ds];
+    if (row) upcomingDays.push({
+      label: di === 0 ? 'Tonight' : d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}),
+      night: row.night_covers,
+      day: row.day_covers
+    });
+  }
+
   const stationMeters=STATIONS.map(st=>{
     const c=stationCounts(st), total=c.sos+c.bu+c.ok+c.none||1;
     return `<div class="station-meter">
@@ -479,6 +508,7 @@ function renderDashboard(){
       <div class="meter-pct">${stationReadiness(st)}%</div>
     </div>`;
   }).join('');
+
   const criticalList=critical.length?critical.slice(0,18).map(r=>`
     <div class="critical-item">
       <span class="check-badge ${r.status==='sos'?'discard':r.status==='bu'?'review':r.status}">${statusLabel(r.status)}</span>
@@ -488,15 +518,46 @@ function renderDashboard(){
         ${r.note?`<div class="check-card-note">${r.note}</div>`:''}
       </div>
     </div>`).join(''):`<div class="report-no-data">No critical items at the moment</div>`;
+
+  const coversRow = upcomingDays.map(function(d){
+    return '<div class="dash-cover-day' + (d.label==='Tonight'?' dash-cover-today':'') + '">' +
+      '<div class="dash-cover-label">' + d.label + '</div>' +
+      '<div class="dash-cover-num">' + d.night + '</div>' +
+      '<div class="dash-cover-sub">night</div>' +
+    '</div>';
+  }).join('');
+
+  const coversCard = nightCovers !== null
+    ? `<div class="ops-card dark dash-covers-card">
+        <div class="ops-num">${nightCovers}</div>
+        <div class="ops-label">Tonight's covers</div>
+        ${coversUpdated ? '<div class="dash-covers-sync">SevenRooms · updated ' + coversUpdated + '</div>' : ''}
+       </div>`
+    : `<div class="ops-card dash-covers-card dash-no-covers">
+        <div class="ops-num">—</div>
+        <div class="ops-label">Tonight's covers</div>
+        <div class="dash-covers-sync">Not synced — use laptop to sync</div>
+       </div>`;
+
   document.getElementById('dashboard-view').innerHTML=`
-    <div class="ops-title">Dashboard</div>
-    <div class="ops-subtitle">${TODAY} · Live kitchen overview</div>
-    <div class="ops-grid">
-      <div class="ops-card dark"><div class="ops-num">${ready}%</div><div class="ops-label">Prep readiness</div></div>
-      <div class="ops-card"><div class="ops-num">${prep.sos}</div><div class="ops-label">SOS prep items</div></div>
-      <div class="ops-card"><div class="ops-num">${checks.review}</div><div class="ops-label">Chef to check</div></div>
-      <div class="ops-card"><div class="ops-num">${checks.discard}</div><div class="ops-label">Chef discard</div></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
+      <div>
+        <div class="ops-title" style="margin-bottom:2px">Dashboard</div>
+        <div class="ops-subtitle">${TODAY} · Live kitchen overview</div>
+      </div>
+      <button id="sr-sync-btn" class="sr-sync-btn" onclick="syncSevenRoomsCovers()">↻ Sync SevenRooms</button>
     </div>
+    <div class="ops-grid">
+      ${coversCard}
+      <div class="ops-card dark"><div class="ops-num">${ready}%</div><div class="ops-label">Prep readiness</div></div>
+      <div class="ops-card"><div class="ops-num">${prep.sos}</div><div class="ops-label">SOS items</div></div>
+      <div class="ops-card"><div class="ops-num">${checks.review + checks.discard}</div><div class="ops-label">Chef attention</div></div>
+    </div>
+    ${upcomingDays.length > 1 ? `
+    <div class="ops-panel" style="margin-bottom:16px">
+      <div class="ops-panel-head">Upcoming covers <span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms</span></div>
+      <div class="dash-covers-row">${coversRow}</div>
+    </div>` : ''}
     <div class="ops-two">
       <div class="ops-panel">
         <div class="ops-panel-head">Station readiness</div>
@@ -507,6 +568,110 @@ function renderDashboard(){
         <div class="ops-panel-body"><div class="critical-list">${criticalList}</div></div>
       </div>
     </div>`;
+}
+
+// ── SevenRooms Sync ──
+// Opens SevenRooms in a hidden iframe, reads covers, pushes to Supabase
+// Only works if already logged into SevenRooms in the same browser
+async function syncSevenRoomsCovers() {
+  var btn = document.getElementById('sr-sync-btn');
+  if (btn) { btn.textContent = '⟳ Syncing...'; btn.disabled = true; }
+
+  try {
+    // Fetch the SevenRooms home page with credentials (session cookies)
+    var res = await fetch('https://www.sevenrooms.com/app/home/robertosdubai', {
+      credentials: 'include',
+      headers: { 'Accept': 'text/html' }
+    });
+
+    if (!res.ok) throw new Error('Not logged in to SevenRooms (' + res.status + ')');
+
+    var html = await res.text();
+
+    // Parse covers from the page text
+    // SevenRooms renders data as JSON in a script tag
+    var jsonMatch = html.match(/"upcoming_covers":\s*(\[[\s\S]*?\])/);
+    var days = [];
+
+    if (jsonMatch) {
+      // Parse from JSON data in page
+      try {
+        var coversData = JSON.parse(jsonMatch[1]);
+        coversData.forEach(function(d) {
+          if (d.date && (d.night_covers !== undefined || d.covers !== undefined)) {
+            days.push({
+              service_date: d.date,
+              day_covers: d.day_covers || 0,
+              night_covers: d.night_covers || d.covers || 0,
+              updated_at: new Date().toISOString()
+            });
+          }
+        });
+      } catch(e) {}
+    }
+
+    // Fallback: parse from rendered text
+    if (days.length === 0) {
+      var lines = html.replace(/<[^>]+>/g,'').split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l; });
+      var si = -1;
+      for (var li = 0; li < lines.length; li++) {
+        if (lines[li].includes('UPCOMING COVERS')) { si = li; break; }
+      }
+      if (si === -1) throw new Error('Could not find covers data — make sure you are logged into SevenRooms');
+
+      var i = si + 1;
+      var count = 0;
+      while (i < lines.length && count < 7) {
+        var m = lines[i].match(/(\d+)\/(\d+)/);
+        if (m) {
+          var dayN = parseInt(lines[i+1]) || 0;
+          var nightN = parseInt(lines[i+3]) || 0;
+          var date = '2026-' + m[2].padStart(2,'0') + '-' + m[1].padStart(2,'0');
+          days.push({ service_date: date, day_covers: dayN, night_covers: nightN, updated_at: new Date().toISOString() });
+          count++;
+          i += 5;
+        } else { i++; }
+      }
+    }
+
+    if (days.length === 0) throw new Error('No covers data found — try refreshing SevenRooms first');
+
+    // Push to Supabase
+    var pushRes = await sb.from('covers').upsert(days, { onConflict: 'service_date' });
+    if (pushRes.error) throw new Error(pushRes.error.message);
+
+    // Update local cache and re-render
+    days.forEach(function(d){ dashCovers[d.service_date] = d; });
+
+    if (btn) {
+      btn.textContent = '✓ Synced ' + days.length + ' days';
+      btn.style.background = 'var(--oliva)';
+      btn.style.borderColor = 'var(--oliva)';
+      setTimeout(function(){
+        btn.textContent = '↻ Sync SevenRooms';
+        btn.style.background = '';
+        btn.style.borderColor = '';
+        btn.disabled = false;
+      }, 3000);
+    }
+    renderDashboard();
+
+  } catch(err) {
+    console.error('SevenRooms sync error:', err);
+    if (btn) {
+      btn.textContent = '↻ Sync SevenRooms';
+      btn.disabled = false;
+    }
+    // Show user-friendly message
+    var msg = err.message || 'Unknown error';
+    if (msg.includes('Not logged') || msg.includes('401') || msg.includes('403')) {
+      alert('Not logged into SevenRooms.\n\nOpen www.sevenrooms.com/app/home/robertosdubai in this browser, log in, then try again.');
+    } else if (msg.includes('CORS') || msg.includes('fetch')) {
+      alert('Browser blocked the request.\n\nMake sure you are using this app on your laptop (not a kitchen screen) and are logged into SevenRooms.');
+    } else {
+      alert('Sync failed: ' + msg);
+    }
+  }
 }
 
 // â”€â”€ REPORTS â”€â”€
