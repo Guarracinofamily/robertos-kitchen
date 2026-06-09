@@ -12,6 +12,7 @@ const DASHBOARD_KEY = 'dashboard';
 const REPORTS_KEY = 'reports_module';
 const ORDER_KEY = 'order_inventory';
 const RECIPES_KEY = 'recipes';
+const SCHED_KEY = 'scheduling';
 const TODAY = new Date().toISOString().split('T')[0];
 const CHECK_STORAGE_KEY = 'robertos-chef-checks-' + TODAY;
 const ORDER_STORAGE_PREFIX = 'robertos-order-list-';
@@ -28,6 +29,7 @@ let activeFilter = null;
 let undoStack = null;
 let undoTimer = null;
 let realtimeChannel = null;
+let structureRefreshTimer = null;
 let saving = false;
 
 // â”€â”€ INIT â”€â”€
@@ -35,10 +37,12 @@ async function init() {
   setDate();
   await loadPrepList();
   await loadTodayStatus();
-  loadChefChecks();
+  await loadChefChecks();
   loadOrderQuantities();
   if (!DEV_READ_ONLY) subscribeRealtime();
   populateSelects();
+  prepStructureHash = getPrepHash();
+  setTimeout(pollPrepStructure, 5000);
   openHome();
   document.getElementById('loading').classList.add('hidden');
   const legacyReportDate=document.getElementById('report-date');
@@ -66,7 +70,8 @@ async function loadPrepList() {
             id: d.id,
             name: d.name,
             extra: false,
-            items: componentsData.filter(c => c.dish_id === d.id).map(c => c.name)
+            items: componentsData.filter(c => c.dish_id === d.id).map(c => c.name),
+            components: componentsData.filter(c => c.dish_id === d.id).map(c => ({id: c.id, name: c.name}))
           }))
       }))
   }));
@@ -85,7 +90,7 @@ async function loadTodayStatus() {
 
 // â”€â”€ REALTIME SYNC â”€â”€
 function subscribeRealtime() {
-  realtimeChannel = sb.channel('prep_status_changes')
+  realtimeChannel = sb.channel('prep_status_changes_' + Math.random().toString(36).substr(2,9))
     .on('postgres_changes', { event: '*', schema: 'public', table: 'prep_status', filter: `service_date=eq.${TODAY}` },
       payload => {
         const r = payload.new || payload.old;
@@ -99,9 +104,69 @@ function subscribeRealtime() {
           else { renderCounter(); updateRowUI(id, newStatus); applyFilter(); renderTabs(); }
         }
       })
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dishes' }, payload => { refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dishes' }, payload => { refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'dishes' }, payload => { refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dish_components' }, payload => { refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dish_components' }, payload => { refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'dish_components' }, payload => { refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'chef_checks', filter: `service_date=eq.${TODAY}` },
+      payload => {
+        const row = payload.new || payload.old;
+        if(!row || !row.check_id)return;
+        if(payload.eventType === 'DELETE')chefChecks=chefChecks.filter(c=>c.id!==row.check_id);
+        else{
+          const incoming=chefCheckFromRow(row);
+          const existing=chefChecks.find(c=>c.id===incoming.id);
+          if(existing)Object.assign(existing,incoming);
+          else chefChecks.unshift(incoming);
+        }
+        saveChefChecks();
+        flashSync();
+        renderAfterChefCheckSync();
+      })
     .subscribe(status => {
       document.getElementById('realtime-dot').classList.toggle('live', status === 'SUBSCRIBED');
     });
+}
+
+function refreshPrepStructureFromRealtime(){
+  if(structureRefreshTimer)clearTimeout(structureRefreshTimer);
+  structureRefreshTimer=setTimeout(async()=>{
+    await loadPrepList();
+    flashSync();
+    renderTabs();
+    if(activeStation===PASS_KEY)renderPassView();
+    else if(activeStation===CHECK_KEY)renderCheckView();
+    else if(activeStation===DASHBOARD_KEY)renderDashboard();
+    else if(activeStation===REPORTS_KEY)renderReports();
+    else if(activeStation!==HOME_KEY&&activeStation!==ORDER_KEY&&activeStation!==RECIPES_KEY&&activeStation!==SCHED_KEY){renderCounter();renderContent();}
+  },400);
+}
+
+// Polling fallback — checks for prep structure changes every 5 seconds
+// Needed because Supabase free tier does not broadcast DELETE events without a filter
+let prepStructureHash = '';
+function getPrepHash(){
+  return STATIONS.map(st=>st.subsections.map(ss=>ss.dishes.map(d=>d.id).join(',')).join('|')).join(';');
+}
+async function pollPrepStructure(){
+  try {
+    const prev = prepStructureHash;
+    await loadPrepList();
+    const curr = getPrepHash();
+    if(prev && curr !== prev){
+      flashSync();
+      renderTabs();
+      if(activeStation===PASS_KEY)renderPassView();
+      else if(activeStation===CHECK_KEY)renderCheckView();
+      else if(activeStation===DASHBOARD_KEY)renderDashboard();
+      else if(activeStation===REPORTS_KEY)renderReports();
+      else if(activeStation!==HOME_KEY&&activeStation!==ORDER_KEY&&activeStation!==RECIPES_KEY&&activeStation!==SCHED_KEY){renderCounter();renderContent();}
+    }
+    prepStructureHash = curr;
+  } catch(e){}
+  setTimeout(pollPrepStructure, 5000);
 }
 
 function flashSync() {
@@ -111,12 +176,64 @@ function flashSync() {
 }
 
 // â”€â”€ CHEF CHECKLIST STORAGE â”€â”€
-function loadChefChecks(){
-  try{chefChecks=JSON.parse(localStorage.getItem(CHECK_STORAGE_KEY)||'[]');}
-  catch(e){chefChecks=[];}
+function chefCheckFromRow(row){
+  return {
+    id: row.check_id,
+    stationKey: row.station_key,
+    subsectionKey: row.subsection_key,
+    dish: row.dish_name,
+    item: row.component_name,
+    status: row.status,
+    note: row.note || '',
+    createdAt: row.updated_at ? new Date(row.updated_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : ''
+  };
+}
+function chefCheckToRow(check){
+  return {
+    service_date: TODAY,
+    check_id: check.id,
+    station_key: check.stationKey,
+    subsection_key: check.subsectionKey,
+    dish_name: check.dish,
+    component_name: check.item,
+    status: check.status,
+    note: check.note || '',
+    updated_at: new Date().toISOString()
+  };
 }
 function saveChefChecks(){
   localStorage.setItem(CHECK_STORAGE_KEY,JSON.stringify(chefChecks));
+}
+async function loadChefChecks(){
+  try{
+    const { data, error } = await sb.from('chef_checks').select('*').eq('service_date', TODAY);
+    if(error)throw error;
+    chefChecks=(data||[]).map(chefCheckFromRow);
+    saveChefChecks();
+  }catch(e){
+    try{chefChecks=JSON.parse(localStorage.getItem(CHECK_STORAGE_KEY)||'[]');}
+    catch(err){chefChecks=[];}
+  }
+}
+async function upsertChefCheck(check){
+  saveChefChecks();
+  if(DEV_READ_ONLY)return;
+  try{await sb.from('chef_checks').upsert(chefCheckToRow(check),{onConflict:'service_date,check_id'});}
+  catch(e){console.warn('Chef checklist Supabase sync failed',e);}
+}
+async function deleteChefCheck(id){
+  chefChecks=chefChecks.filter(c=>c.id!==id);
+  saveChefChecks();
+  if(DEV_READ_ONLY)return;
+  try{await sb.from('chef_checks').delete().eq('service_date',TODAY).eq('check_id',id);}
+  catch(e){console.warn('Chef checklist delete sync failed',e);}
+}
+function renderAfterChefCheckSync(){
+  renderTabs();
+  if(activeStation===CHECK_KEY)renderCheckView();
+  else if(activeStation===DASHBOARD_KEY)renderDashboard();
+  else if(activeStation===REPORTS_KEY)renderReports();
+  else if(activeStation!==HOME_KEY&&activeStation!==ORDER_KEY&&activeStation!==RECIPES_KEY&&activeStation!==SCHED_KEY)renderContent();
 }
 function orderStorageKey(date){return ORDER_STORAGE_PREFIX + date;}
 function loadOrderQuantities(){
@@ -286,17 +403,18 @@ function renderCheckItem(stKey,ssKey,dish,item){
   </div>`;
 }
 function switchCheckStation(stKey){activeCheckStation=stKey;renderCheckView();}
-function setItemCheck(id,status){
+async function setItemCheck(id,status){
   const existing=getChefCheck(id);
-  if(existing&&existing.status===status&&!existing.note)chefChecks=chefChecks.filter(c=>c.id!==id);
+  if(existing&&existing.status===status&&!existing.note)await deleteChefCheck(id);
   else{
     const p=parseId(id);
     const now=new Date();
     const payload={id,stationKey:p.stk,subsectionKey:p.ssk,dish:p.dn,item:p.item,status,note:existing?existing.note:'',createdAt:now.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})};
     if(existing)Object.assign(existing,payload);
     else chefChecks.unshift(payload);
+    await upsertChefCheck(existing||payload);
   }
-  saveChefChecks();renderTabs();renderCheckView();
+  renderAfterChefCheckSync();
 }
 function showItemCheckNote(noteId){
   const panel=document.getElementById(noteId);
@@ -306,7 +424,7 @@ function hideItemCheckNote(noteId){
   const panel=document.getElementById(noteId);
   if(panel)panel.classList.remove('visible');
 }
-function saveItemCheckNote(id,noteId){
+async function saveItemCheckNote(id,noteId){
   const p=parseId(id);
   const existing=getChefCheck(id);
   const input=document.getElementById(noteId+'-input');
@@ -314,28 +432,29 @@ function saveItemCheckNote(id,noteId){
   const now=new Date();
   if(existing){existing.note=note.trim();existing.createdAt=now.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});}
   else chefChecks.unshift({id,stationKey:p.stk,subsectionKey:p.ssk,dish:p.dn,item:p.item,status:'review',note:note.trim(),createdAt:now.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})});
-  saveChefChecks();renderTabs();renderCheckView();
+  await upsertChefCheck(getChefCheck(id));
+  renderAfterChefCheckSync();
 }
-function addChefCheck(){
+async function addChefCheck(){
   const now=new Date();
-  chefChecks.unshift({id:'manual-'+Date.now(),stationKey:activeCheckStation||STATIONS[0].key,subsectionKey:'manual',dish:'Manual check',item:'Manual check',note:'',status:'review',createdAt:now.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})});
-  saveChefChecks();
-  renderTabs();
-  renderCheckView();
+  const check={id:'manual-'+Date.now(),stationKey:activeCheckStation||STATIONS[0].key,subsectionKey:'manual',dish:'Manual check',item:'Manual check',note:'',status:'review',createdAt:now.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})};
+  chefChecks.unshift(check);
+  await upsertChefCheck(check);
+  renderAfterChefCheckSync();
 }
-function removeChefCheck(id){
-  chefChecks=chefChecks.filter(c=>c.id!==id);
-  saveChefChecks();
-  renderTabs();
-  if(activeStation===CHECK_KEY)renderCheckView();
-  else renderContent();
+async function removeChefCheck(id){
+  await deleteChefCheck(id);
+  renderAfterChefCheckSync();
 }
-function resetChefChecklist(){
+async function resetChefChecklist(){
   if(!confirm('Reset all chef checklist checks for today?'))return;
   chefChecks=[];
   saveChefChecks();
-  renderTabs();
-  renderCheckView();
+  if(!DEV_READ_ONLY){
+    try{await sb.from('chef_checks').delete().eq('service_date',TODAY);}
+    catch(e){console.warn('Chef checklist reset sync failed',e);}
+  }
+  renderAfterChefCheckSync();
 }
 function renderStationChecks(stKey){
   const checks=chefChecks.filter(c=>c.stationKey===stKey);
@@ -898,6 +1017,7 @@ async function moveDish(fromStKey,fromSsKey,dishName,mid){
   if(idx===-1)return;
   const dish=fromSs.dishes.splice(idx,1)[0];
   const savedState={};
+  const movedChecks=[];
   dish.items.forEach(item=>{
     const oldId=mkId(fromStKey,fromSsKey,dish.name,item);
     const newId=mkId(toStKey,toSsKey,dish.name,item);
@@ -909,10 +1029,18 @@ async function moveDish(fromStKey,fromSsKey,dishName,mid){
       existingCheck.id=newId;
       existingCheck.stationKey=toStKey;
       existingCheck.subsectionKey=toSsKey;
+      movedChecks.push({oldId,newCheck:{...existingCheck}});
     }
   });
   toSs.dishes.push(dish);
   saveChefChecks();
+  for(const item of movedChecks){
+    await deleteChefCheck(item.oldId);
+    const existing=chefChecks.find(c=>c.id===item.newCheck.id);
+    if(existing)Object.assign(existing,item.newCheck);
+    else chefChecks.unshift(item.newCheck);
+    await upsertChefCheck(item.newCheck);
+  }
   await persistMoveDish(dish,fromStKey,fromSsKey,toStKey,toSsKey,savedState);
   undoStack={type:'move',fromStKey,fromSsKey,toStKey,toSsKey,dishName:dish.name,idx};
   activeFilter=null;
@@ -929,6 +1057,10 @@ function deleteDish(stKey,ssKey,dishName,did){
   const removed=ss.dishes.splice(di,1)[0];
   const savedState={};removed.items.forEach(item=>{const id=mkId(stKey,ssKey,dishName,item);savedState[item]=state[id]||'none';delete state[id];});
   undoStack={type:'dish',stKey,ssKey,dish:removed,idx:di,savedState};
+  // Sync to Supabase so all screens reflect the removal
+  if(!DEV_READ_ONLY && removed.id){
+    sb.from('dishes').delete().eq('id',removed.id);
+  }
   showUndo(`"${dishName}" removed`);renderTabs();renderCounter();renderContent();
 }
 
@@ -937,8 +1069,17 @@ function showItemConfirm(ikey,encId){document.getElementById(ikey).classList.add
 function cancelItemConfirm(ikey,encId){document.getElementById(ikey).classList.remove('visible');document.getElementById('sb-'+encId).style.display='';document.getElementById('idb-'+encId).style.display='';}
 function deleteItem(id,stKey,ssKey,dishName,idx,ikey){
   const st=STATIONS.find(s=>s.key===stKey);const ss=st.subsections.find(s=>s.key===ssKey);const dish=ss.dishes.find(d=>d.name===dishName);
-  if(!dish)return;const itemName=dish.items[idx];const savedStatus=state[id]||'none';delete state[id];dish.items.splice(idx,1);
-  if(dish.items.length===0){const di=ss.dishes.findIndex(d=>d.name===dishName);const rd=ss.dishes.splice(di,1)[0];undoStack={type:'dish',stKey,ssKey,dish:rd,idx:di,savedState:{}};}
+  if(!dish)return;const itemName=dish.items[idx];const savedStatus=state[id]||'none';delete state[id];
+  const removedComp=dish.components?dish.components[idx]:null;
+  dish.items.splice(idx,1);
+  if(dish.components)dish.components.splice(idx,1);
+  // Sync to Supabase so all screens reflect the removal
+  if(!DEV_READ_ONLY && removedComp && removedComp.id){
+    sb.from('dish_components').delete().eq('id',removedComp.id);
+  }
+  if(dish.items.length===0){const di=ss.dishes.findIndex(d=>d.name===dishName);const rd=ss.dishes.splice(di,1)[0];undoStack={type:'dish',stKey,ssKey,dish:rd,idx:di,savedState:{}};
+    if(!DEV_READ_ONLY && rd.id)sb.from('dishes').delete().eq('id',rd.id);
+  }
   else undoStack={type:'item',stKey,ssKey,dishName,itemName,idx,savedStatus};
   showUndo(`"${itemName}" removed`);renderTabs();renderCounter();renderContent();
 }
@@ -983,7 +1124,7 @@ async function undoDelete(){
 
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','recipes-view','check-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','recipes-view','check-view','scheduling-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -1047,7 +1188,7 @@ function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','recipes-view','check-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','recipes-view','check-view','scheduling-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';
@@ -1122,3 +1263,807 @@ function setDate(){
 
 init();
 
+
+// ══════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════
+// SCHEDULING MODULE
+// ══════════════════════════════════════════════════════
+
+const STATIONS_SCH = [
+  { key: 'pass',         label: 'Pass Area' },
+  { key: 'raw_bar',      label: 'Raw Bar / Starter' },
+  { key: 'pasta',        label: 'Pasta' },
+  { key: 'main',         label: 'Main Course' },
+  { key: 'pastry_pizza', label: 'Pastry & Pizza' },
+  { key: 'stewarding',   label: 'Stewarding' },
+];
+
+const STATUS_META = {
+  working: { label: '',    bg: 'working' },
+  off:     { label: 'OFF', bg: 'off' },
+  wo:      { label: 'WO',  bg: 'wo' },
+  sl:      { label: 'SL',  bg: 'sl' },
+  al:      { label: 'AL',  bg: 'al' },
+  ph:      { label: 'PH',  bg: 'ph' },
+  em:      { label: 'EM',  bg: 'em' },
+  tr:      { label: 'TR',  bg: 'tr' },
+  cat:     { label: 'CAT', bg: 'cat' },
+};
+
+let schedWeekStart   = null;
+let schedRoster      = {};
+let schedStaff       = [];
+let schedView        = 'week';
+let schedEditTarget  = null;
+let schedRTChannel   = null;
+
+// ── Helpers ──
+function getMonday(d) {
+  var dt = new Date(d); var day = dt.getDay();
+  dt.setDate(dt.getDate() + (day === 0 ? -6 : 1 - day));
+  dt.setHours(12,0,0,0); return dt;
+}
+function formatDate(d) { var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0'); return y+'-'+m+'-'+dd; }
+function addDays(d, n) { var dt = new Date(d); dt.setDate(dt.getDate() + n); dt.setHours(12,0,0,0); return dt; }
+function formatTime(t) { return t ? String(t).substring(0,5) : ''; }
+function calcHours(start, end, start2, end2) {
+  if (!start || !end) return 0;
+  var sp = start.split(':'), ep = end.split(':');
+  var mins = (parseInt(ep[0])*60 + parseInt(ep[1]||0)) - (parseInt(sp[0])*60 + parseInt(sp[1]||0));
+  if (mins <= 0) mins += 1440;
+  if (start2 && end2) {
+    var sp2 = start2.split(':'), ep2 = end2.split(':');
+    var mins2 = (parseInt(ep2[0])*60 + parseInt(ep2[1]||0)) - (parseInt(sp2[0])*60 + parseInt(sp2[1]||0));
+    if (mins2 <= 0) mins2 += 1440;
+    mins += mins2;
+  }
+  return Math.round(mins/6)/10;
+}
+function schedRosterKey(staffId, date) { return staffId + '|' + date; }
+
+// ── Data loading ──
+async function loadSchedData() {
+  var weekEnd = formatDate(addDays(schedWeekStart, 13));
+  var weekFrom = formatDate(addDays(schedWeekStart, -7));
+  var res = await Promise.all([
+    sb.from('staff').select('*').eq('active', true).order('sort_order'),
+    sb.from('roster').select('*').gte('work_date', weekFrom).lte('work_date', weekEnd)
+  ]);
+  schedStaff = res[0].data || [];
+  schedRoster = {};
+  (res[1].data || []).forEach(function(r) {
+    schedRoster[schedRosterKey(r.staff_id, r.work_date)] = r;
+  });
+}
+
+// ── Realtime ──
+function subscribeSchedRealtime() {
+  if (schedRTChannel) return;
+  schedRTChannel = sb.channel('roster_rt')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'roster' }, function(payload) {
+      var r = payload.new || payload.old;
+      if (!r) return;
+      // work_date from Supabase realtime may include time component — normalise to YYYY-MM-DD
+      var workDate = r.work_date ? String(r.work_date).substring(0, 10) : '';
+      var k = schedRosterKey(r.staff_id, workDate);
+      if (payload.eventType === 'DELETE') {
+        delete schedRoster[k];
+      } else {
+        // Normalise work_date on the stored object too
+        var normalised = Object.assign({}, payload.new, { work_date: workDate });
+        schedRoster[k] = normalised;
+      }
+      if (activeStation === SCHED_KEY) {
+        if (schedView === 'week') renderSchedWeek();
+        else renderSchedDay();
+      }
+    })
+    .subscribe(function(status) {
+      // Log realtime status for debugging
+      console.log('Roster realtime:', status);
+    });
+}
+
+// ── Open page ──
+async function openScheduling() {
+  activeStation = SCHED_KEY;
+  hideAllPages();
+  var el = document.getElementById('scheduling-view');
+  el.style.display = 'flex';
+  el.style.flexDirection = 'column';
+  document.querySelector('.footer-bar').style.display = 'flex';
+  document.getElementById('foot-label').textContent = 'Scheduling';
+  if (!schedWeekStart) schedWeekStart = getMonday(new Date());
+  await loadSchedData();
+  subscribeSchedRealtime();
+  renderSchedView();
+}
+
+// ── Navigation ──
+function schedWeekOffset(n) {
+  schedWeekStart = addDays(schedWeekStart, n * 7);
+  loadSchedData().then(renderSchedView);
+}
+function schedGoToday() {
+  schedWeekStart = getMonday(new Date());
+  loadSchedData().then(renderSchedView);
+}
+function schedSetView(v) {
+  schedView = v;
+  document.querySelectorAll('.sch-vtab').forEach(function(b) { b.classList.remove('active'); });
+  document.getElementById('svt-' + v).classList.add('active');
+  renderSchedView();
+}
+
+// ── Render view ──
+function renderSchedView() {
+  var days = []; for (var i = 0; i < 7; i++) days.push(addDays(schedWeekStart, i));
+  var opts = { day:'numeric', month:'short' };
+  document.getElementById('sch-week-label').textContent =
+    days[0].toLocaleDateString('en-GB', opts) + ' – ' +
+    days[6].toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' });
+  if (schedView === 'week') {
+    document.getElementById('sch-week-view').style.display = 'block';
+    document.getElementById('sch-day-view').style.display = 'none';
+    renderSchedWeek();
+  } else {
+    document.getElementById('sch-week-view').style.display = 'none';
+    document.getElementById('sch-day-view').style.display = 'block';
+    renderSchedDay();
+  }
+}
+
+// ── Weekly grid ──
+function renderSchedWeek() {
+  var today = formatDate(new Date());
+  var days = []; for (var i = 0; i < 7; i++) days.push(addDays(schedWeekStart, i));
+  var dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+
+  var html = '<table class="sch-grid"><thead><tr>';
+  html += '<th class="sch-th-name">Name</th><th class="sch-th-role">Role</th>';
+  for (var di = 0; di < days.length; di++) {
+    var ds = formatDate(days[di]);
+    html += '<th class="' + (ds === today ? 'sch-th-today' : '') + '">' + dayNames[di] +
+      '<br><span style="font-size:10px;opacity:.8">' +
+      days[di].toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + '</span></th>';
+  }
+  html += '<th>Hrs</th><th>Days</th><th></th></tr></thead><tbody>';
+
+  for (var si = 0; si < STATIONS_SCH.length; si++) {
+    var st = STATIONS_SCH[si];
+    var allStaff = schedStaff.filter(function(s){ return s.station_key === st.key; });
+    if (!allStaff.length) {
+      // Still show add button even if no staff
+      html += '<tr class="sch-station-hdr"><td colspan="11">' + st.label + '</td></tr>';
+    } else {
+      html += '<tr class="sch-station-hdr"><td colspan="11">' + st.label + '</td></tr>';
+      for (var xi = 0; xi < allStaff.length; xi++) {
+        var staff = allStaff[xi];
+        var sid = staff.id;
+        var mpid = 'smp' + sid.replace(/-/g,'');
+        var wHours = 0, wDays = 0;
+
+        html += '<tr>';
+        html += '<td class="sch-td-name">' +
+          '<span class="sch-del-btn" onclick="schedConfirmDelete(event,\'' + sid + '\')" title="Remove">×</span>' +
+          staff.name + '</td>';
+        html += '<td class="sch-td-role" onclick="schedEditRole(event,\'' + sid + '\')" title="Click to edit" style="cursor:pointer">' +
+          staff.designation + ' <span style="opacity:.3;font-size:10px">✎</span></td>';
+
+        for (var dj = 0; dj < days.length; dj++) {
+          var ds2 = formatDate(days[dj]);
+          var rrow = schedRoster[schedRosterKey(sid, ds2)];
+          var isTod = ds2 === today;
+          html += '<td class="sch-cell' + (isTod ? ' sch-cell-today' : '') +
+            '" onclick="schedOpenEdit(\'' + sid + '\',\'' + ds2 + '\')">';
+          if (!rrow || rrow.status === 'working') {
+            var ts = rrow ? formatTime(rrow.shift_start) : '';
+            var te = rrow ? formatTime(rrow.shift_end) : '';
+            var h = calcHours(ts, te, rrow ? formatTime(rrow.shift_start2) : '', rrow ? formatTime(rrow.shift_end2) : '');
+            if (ts && te) { wHours += h; wDays++; }
+            var ts2 = rrow ? formatTime(rrow.shift_start2) : '';
+            var te2 = rrow ? formatTime(rrow.shift_end2)   : '';
+            var splitLabel = (ts2 && te2) ? '<br><span style="opacity:.6;font-size:9px">' + ts2 + '–' + te2 + '</span>' : '';
+            html += '<div class="sch-shift working">' +
+              (ts && te ? ts + '<br>' + te + splitLabel : '<span style="color:#bbb;font-size:10px">+ add</span>') + '</div>';
+          } else {
+            var meta = STATUS_META[rrow.status] || { label: rrow.status.toUpperCase(), bg: 'off' };
+            if (rrow.status !== 'off') wDays++;
+            html += '<div class="sch-shift ' + meta.bg + '">' + meta.label + '</div>';
+          }
+          html += '</td>';
+        }
+
+        html += '<td class="sch-td-hours">' + (wHours > 0 ? wHours + 'h' : '—') + '</td>';
+        html += '<td class="sch-td-days">' + (wDays > 0 ? wDays : '—') + '</td>';
+
+        var stOpts = '';
+        for (var oi = 0; oi < STATIONS_SCH.length; oi++) {
+          stOpts += '<option value="' + STATIONS_SCH[oi].key + '"' +
+            (STATIONS_SCH[oi].key === staff.station_key ? ' selected' : '') + '>' +
+            STATIONS_SCH[oi].label + '</option>';
+        }
+        html += '<td class="sch-td-move">' +
+          '<button class="sch-move-btn" onclick="schedShowMove(\'' + mpid + '\')">&#8596; Move</button>' +
+          '<div class="sch-move-panel" id="' + mpid + '">' +
+            '<span class="sch-move-label">Move to</span>' +
+            '<select class="dish-move-select" id="' + mpid + 'sel">' + stOpts + '</select>' +
+            '<button class="dish-move-yes" onclick="schedMoveStation(\'' + sid + '\',\'' + mpid + '\')">Move</button>' +
+            '<button class="dish-move-no" onclick="schedHideMove(\'' + mpid + '\')">Cancel</button>' +
+          '</div></td>';
+        html += '</tr>';
+      }
+    }
+
+    // Add staff row at bottom of each station
+    html += '<tr class="sch-add-row"><td colspan="11">' +
+      '<button class="sch-add-staff-btn" onclick="schedShowAddStaff(\'' + st.key + '\')">+ Add staff to ' + st.label + '</button>' +
+      '<div class="sch-add-staff-panel" id="sadd-' + st.key + '">' +
+        '<input type="text" class="sch-add-name-inp" id="sadd-name-' + st.key + '" placeholder="Full name" />' +
+        '<input type="text" class="sch-add-role-inp" id="sadd-role-' + st.key + '" placeholder="Role (CDP, Commis 1...)" />' +
+        '<button class="dish-move-yes" onclick="schedSaveNewStaff(\'' + st.key + '\')">Add</button>' +
+        '<button class="dish-move-no" onclick="schedHideAddStaff(\'' + st.key + '\')">Cancel</button>' +
+      '</div>' +
+    '</td></tr>';
+  }
+
+  html += '</tbody></table>';
+  document.getElementById('sch-grid-wrap').innerHTML = html;
+}
+
+// ── Day view ──
+function renderSchedDay() {
+  var today = formatDate(new Date());
+  var total = 0;
+  var html = '<h3 style="font-family:var(--font-serif);color:var(--vino);font-size:18px;margin:0 0 16px">' +
+    new Date(today + 'T12:00:00').toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) + '</h3>';
+  var sections = '';
+  STATIONS_SCH.forEach(function(st) {
+    var working = schedStaff.filter(function(s) {
+      if (s.station_key !== st.key) return false;
+      var row = schedRoster[schedRosterKey(s.id, today)];
+      return !row || row.status === 'working';
+    });
+    if (!working.length) return;
+    total += working.length;
+    working.sort(function(a,b) {
+      var ra = schedRoster[schedRosterKey(a.id,today)];
+      var rb = schedRoster[schedRosterKey(b.id,today)];
+      return (ra&&ra.shift_start?ra.shift_start:'99').localeCompare(rb&&rb.shift_start?rb.shift_start:'99');
+    });
+    sections += '<div class="sch-day-section"><div class="sch-day-section-title">' + st.label + '</div>';
+    working.forEach(function(staff) {
+      var row = schedRoster[schedRosterKey(staff.id, today)];
+      var ts = row ? formatTime(row.shift_start) : '';
+      var te = row ? formatTime(row.shift_end) : '';
+      var h = calcHours(ts, te);
+      sections += '<div class="sch-day-row">' +
+        '<span class="sch-day-name">' + staff.name + '</span>' +
+        '<span class="sch-day-role">' + staff.designation + '</span>' +
+        '<span class="sch-day-shift">' + (ts && te ? ts + ' – ' + te : '<em style="color:#bbb">No time set</em>') + '</span>' +
+        '<span class="sch-day-hours">' + (h > 0 ? h + 'h' : '') + '</span>' +
+        '</div>';
+    });
+    sections += '</div>';
+  });
+  document.getElementById('sch-day-content').innerHTML =
+    '<div style="margin-bottom:12px;font-size:13px;color:var(--vino-light)">' + total + ' staff in today</div>' + sections;
+}
+
+// ── Edit modal ──
+function schedOpenEdit(staffId, date) {
+  schedEditTarget = { staffId: staffId, date: date };
+  var staff = schedStaff.find(function(s){ return s.id === staffId; });
+  var row = schedRoster[schedRosterKey(staffId, date)];
+  var d = new Date(date + 'T12:00:00');
+  document.getElementById('sch-modal-title').textContent =
+    (staff ? staff.name : '') + ' · ' + d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+  document.getElementById('sch-status-sel').value = row ? row.status : 'working';
+
+  // Parse existing times
+  var startTime = row && row.shift_start ? formatTime(row.shift_start) : '14:00';
+  var endTime   = row && row.shift_end   ? formatTime(row.shift_end)   : '00:00';
+  var startParts = startTime.split(':');
+  var endParts   = endTime.split(':');
+
+  document.getElementById('sch-start-h').value = startParts[0] || '14';
+  document.getElementById('sch-start-m').value = startParts[1] || '00';
+  document.getElementById('sch-end-h').value   = endParts[0]   || '00';
+  document.getElementById('sch-end-m').value   = endParts[1]   || '00';
+  document.getElementById('sch-notes-inp').value = row && row.notes ? row.notes : '';
+
+  // Split shift
+  var hasSplit = row && row.shift_start2 && row.shift_end2;
+  var start2Time = hasSplit ? formatTime(row.shift_start2) : '18:00';
+  var end2Time   = hasSplit ? formatTime(row.shift_end2)   : '00:00';
+  var s2p = start2Time.split(':'), e2p = end2Time.split(':');
+  document.getElementById('sch-start2-h').value = s2p[0] || '18';
+  document.getElementById('sch-start2-m').value = s2p[1] || '00';
+  document.getElementById('sch-end2-h').value   = e2p[0] || '00';
+  document.getElementById('sch-end2-m').value   = e2p[1] || '00';
+
+  var splitFields = document.getElementById('sch-split-fields');
+  var splitToggle = document.getElementById('sch-split-toggle');
+  if (hasSplit) {
+    splitFields.style.display = 'block';
+    splitToggle.textContent = '− Remove split shift';
+    splitToggle.classList.add('active');
+  } else {
+    splitFields.style.display = 'none';
+    splitToggle.textContent = '+ Add split shift';
+    splitToggle.classList.remove('active');
+  }
+
+  schedStatusChange();
+  document.getElementById('sch-modal').style.display = 'flex';
+}
+
+function schedToggleSplit() {
+  var fields = document.getElementById('sch-split-fields');
+  var btn = document.getElementById('sch-split-toggle');
+  var isOpen = fields.style.display !== 'none';
+  if (isOpen) {
+    fields.style.display = 'none';
+    btn.textContent = '+ Add split shift';
+    btn.classList.remove('active');
+  } else {
+    fields.style.display = 'block';
+    btn.textContent = '− Remove split shift';
+    btn.classList.add('active');
+  }
+}
+
+function schedStatusChange() {
+  var status = document.getElementById('sch-status-sel').value;
+  document.getElementById('sch-time-fields').style.display = status === 'working' ? 'block' : 'none';
+}
+function schedCloseModal(e) {
+  if (e && e.target !== document.getElementById('sch-modal')) return;
+  document.getElementById('sch-modal').style.display = 'none';
+  schedEditTarget = null;
+}
+async function schedSaveShift() {
+  if (!schedEditTarget) return;
+  var staffId = schedEditTarget.staffId;
+  var date    = schedEditTarget.date;
+  var status  = document.getElementById('sch-status-sel').value;
+  var startH = document.getElementById('sch-start-h').value;
+  var startM = document.getElementById('sch-start-m').value;
+  var endH   = document.getElementById('sch-end-h').value;
+  var endM   = document.getElementById('sch-end-m').value;
+  var start  = startH + ':' + startM;
+  var end    = endH   + ':' + endM;
+  var hasSplit2 = document.getElementById('sch-split-fields').style.display !== 'none';
+  var start2H = document.getElementById('sch-start2-h').value;
+  var start2M = document.getElementById('sch-start2-m').value;
+  var end2H   = document.getElementById('sch-end2-h').value;
+  var end2M   = document.getElementById('sch-end2-m').value;
+  var start2  = hasSplit2 ? (start2H + ':' + start2M) : null;
+  var end2    = hasSplit2 ? (end2H   + ':' + end2M)   : null;
+  var notes   = document.getElementById('sch-notes-inp').value.trim();
+  document.getElementById('sch-modal').style.display = 'none';
+  var key = schedRosterKey(staffId, date);
+  var payload = Object.assign({}, schedRoster[key] || {}, {
+    staff_id: staffId, work_date: date, status: status,
+    shift_start:  status === 'working' ? (start||null)  : null,
+    shift_end:    status === 'working' ? (end||null)    : null,
+    shift_start2: status === 'working' ? (start2||null) : null,
+    shift_end2:   status === 'working' ? (end2||null)   : null,
+    notes: notes || null, updated_at: new Date().toISOString()
+  });
+  schedRoster[key] = payload;
+  renderSchedWeek();
+  if (!DEV_READ_ONLY) {
+    var res = await sb.from('roster').upsert(payload, { onConflict: 'staff_id,work_date' });
+    if (res.error) console.error('Save error:', res.error);
+  }
+  schedEditTarget = null;
+}
+
+// ── Move panel ──
+function schedShowMove(mpid) {
+  document.querySelectorAll('.sch-move-panel.show').forEach(function(p){ p.classList.remove('show'); });
+  var el = document.getElementById(mpid);
+  if (el) el.classList.add('show');
+}
+function schedHideMove(mpid) {
+  var el = document.getElementById(mpid);
+  if (el) el.classList.remove('show');
+}
+async function schedMoveStation(staffId, mpid) {
+  var sel = document.getElementById(mpid + 'sel');
+  if (!sel) return;
+  var targetStation = sel.value;
+  schedHideMove(mpid);
+  var staff = schedStaff.find(function(s){ return s.id === staffId; });
+  if (!staff || targetStation === staff.station_key) return;
+  // Permanent move — update staff.station_key in Supabase
+  staff.station_key = targetStation; // optimistic local update
+  renderSchedWeek();
+  if (!DEV_READ_ONLY) {
+    var res = await sb.from('staff').update({ station_key: targetStation }).eq('id', staffId);
+    if (res.error) {
+      console.error('Move error:', res.error);
+      // revert on error
+      loadSchedData().then(renderSchedWeek);
+    }
+  }
+}
+
+
+// ── Edit role inline ──
+function schedEditRole(event, staffId) {
+  event.stopPropagation();
+  var staff = schedStaff.find(function(s){ return s.id === staffId; });
+  if (!staff) return;
+  var td = event.currentTarget;
+  var current = staff.designation;
+  td.innerHTML = '<input type="text" class="sch-role-input" value="' + current + '" ' +
+    'onblur="schedSaveRole(\'' + staffId + '\',this)" ' +
+    'onkeydown="if(event.key===\'Enter\')this.blur();if(event.key===\'Escape\')schedCancelRole(\'' + staffId + '\',this)" ' +
+    'style="width:110px;padding:3px 6px;border:1px solid var(--vino);border-radius:3px;font-size:12px;font-family:var(--font-sans);background:var(--cream)"' +
+    '/>';
+  td.querySelector('input').focus();
+  td.querySelector('input').select();
+}
+
+async function schedSaveRole(staffId, input) {
+  var newRole = input.value.trim();
+  var staff = schedStaff.find(function(s){ return s.id === staffId; });
+  if (!staff || !newRole || newRole === staff.designation) {
+    renderSchedWeek(); return;
+  }
+  staff.designation = newRole;
+  renderSchedWeek();
+  if (!DEV_READ_ONLY) {
+    var res = await sb.from('staff').update({ designation: newRole }).eq('id', staffId);
+    if (res.error) { console.error('Role update error:', res.error); loadSchedData().then(renderSchedWeek); }
+  }
+}
+
+function schedCancelRole(staffId, input) {
+  renderSchedWeek();
+}
+
+// ── Fill week with standard pattern ──
+// Reads day-off pattern from Excel-derived defaults and fills 14:00–00:00 for working days
+async function schedFillWeek() {
+  var days = [];
+  for (var i = 0; i < 7; i++) days.push(addDays(schedWeekStart, i));
+  var upserts = [];
+  var count = 0;
+
+  schedStaff.forEach(function(staff) {
+    days.forEach(function(d, i) {
+      var ds = formatDate(d);
+      var key = schedRosterKey(staff.id, ds);
+      var existing = schedRoster[key];
+      // Skip if: times already set, or explicitly marked as a leave type
+      if (existing) {
+        var hasLeave = ['wo','sl','al','ph','em','tr','cat'].indexOf(existing.status) !== -1;
+        var hasTimes = existing.shift_start && existing.shift_end;
+        if (hasLeave || hasTimes) return;
+      }
+      // Sunday (index 6) = day off by default, otherwise 14:00-00:00
+      var isSunday = i === 6;
+      var payload = {
+        staff_id: staff.id,
+        work_date: ds,
+        status: isSunday ? 'off' : 'working',
+        shift_start: isSunday ? null : '14:00:00',
+        shift_end:   isSunday ? null : '00:00:00',
+        notes: null,
+        updated_at: new Date().toISOString()
+      };
+      schedRoster[key] = payload;
+      upserts.push(payload);
+      count++;
+    });
+  });
+
+  renderSchedWeek();
+
+  if (!DEV_READ_ONLY && upserts.length) {
+    // Use upsert without ignoreDuplicates so it overwrites entries that have no times
+    var res = await sb.from('roster').upsert(upserts, { onConflict: 'staff_id,work_date' });
+    if (res.error) console.error('Fill error:', res.error);
+  }
+
+  var btn = document.getElementById('sch-fill-btn');
+  if (btn) {
+    btn.textContent = count + ' cells filled ✓';
+    setTimeout(function(){ btn.textContent = '⬇ Fill week'; }, 2500);
+  }
+}
+
+
+// ── Delete staff ──
+function schedConfirmDelete(event, staffId) {
+  event.stopPropagation();
+  var staff = schedStaff.find(function(s){ return s.id === staffId; });
+  if (!staff) return;
+  if (!confirm('Remove ' + staff.name + ' from the roster? This cannot be undone.')) return;
+  schedStaff = schedStaff.filter(function(s){ return s.id !== staffId; });
+  renderSchedWeek();
+  if (!DEV_READ_ONLY) {
+    sb.from('staff').update({ active: false }).eq('id', staffId).then(function(res) {
+      if (res.error) { console.error('Delete error:', res.error); loadSchedData().then(renderSchedWeek); }
+    });
+  }
+}
+
+// ── Add staff ──
+function schedShowAddStaff(stationKey) {
+  document.querySelectorAll('.sch-add-staff-panel.show').forEach(function(p){ p.classList.remove('show'); });
+  var panel = document.getElementById('sadd-' + stationKey);
+  if (panel) { panel.classList.add('show'); panel.querySelector('.sch-add-name-inp').focus(); }
+}
+function schedHideAddStaff(stationKey) {
+  var panel = document.getElementById('sadd-' + stationKey);
+  if (panel) { panel.classList.remove('show'); }
+}
+async function schedSaveNewStaff(stationKey) {
+  var nameInp = document.getElementById('sadd-name-' + stationKey);
+  var roleInp = document.getElementById('sadd-role-' + stationKey);
+  var name = nameInp ? nameInp.value.trim() : '';
+  var role = roleInp ? roleInp.value.trim() : '';
+  if (!name || !role) { alert('Please enter both name and role.'); return; }
+  schedHideAddStaff(stationKey);
+  var sortOrder = schedStaff.filter(function(s){ return s.station_key === stationKey; }).length + 1;
+  // Optimistic add with temp id
+  var tempId = 'temp-' + Date.now();
+  var newStaff = { id: tempId, name: name, designation: role, station_key: stationKey, sort_order: sortOrder, active: true };
+  schedStaff.push(newStaff);
+  renderSchedWeek();
+  if (!DEV_READ_ONLY) {
+    var res = await sb.from('staff').insert({ name: name, designation: role, station_key: stationKey, sort_order: sortOrder, active: true }).select().single();
+    if (res.error) {
+      console.error('Add staff error:', res.error);
+      schedStaff = schedStaff.filter(function(s){ return s.id !== tempId; });
+      renderSchedWeek();
+    } else {
+      // Replace temp id with real id
+      var idx = schedStaff.findIndex(function(s){ return s.id === tempId; });
+      if (idx !== -1) schedStaff[idx].id = res.data.id;
+      renderSchedWeek();
+    }
+  }
+}
+
+// ── Copy to next week ──
+function schedCopyToNextWeek() {
+  var nextMon = addDays(schedWeekStart, 7);
+  var nextSun = addDays(schedWeekStart, 13);
+  var fmt = function(d){ return d.toLocaleDateString('en-GB',{day:'numeric',month:'short'}); };
+  document.getElementById('sch-copy-msg').textContent =
+    "Copy this week's roster to " + fmt(nextMon) + ' – ' + fmt(nextSun) +
+    '? Sick leave, emergency and public holidays will not be copied.';
+  document.getElementById('sch-copy-banner').style.display = 'flex';
+}
+function schedDismissCopy() {
+  document.getElementById('sch-copy-banner').style.display = 'none';
+}
+async function schedConfirmCopy() {
+  schedDismissCopy();
+  var days = []; for (var i = 0; i < 7; i++) days.push(addDays(schedWeekStart, i));
+  var upserts = [];
+  schedStaff.forEach(function(staff) {
+    days.forEach(function(d) {
+      var thisDate = formatDate(d);
+      var nextDate = formatDate(addDays(d, 7));
+      var existing = schedRoster[schedRosterKey(staff.id, thisDate)];
+      if (!existing) return;
+      if (['sl','em','ph'].indexOf(existing.status) !== -1) return;
+      upserts.push({
+        staff_id: staff.id, work_date: nextDate,
+        status: existing.status,
+        shift_start:  existing.shift_start  || null,
+        shift_end:    existing.shift_end    || null,
+        shift_start2: existing.shift_start2 || null,
+        shift_end2:   existing.shift_end2   || null,
+        notes: existing.notes || null,
+        station_override: existing.station_override || null,
+        updated_at: new Date().toISOString()
+      });
+      var key = schedRosterKey(staff.id, nextDate);
+      if (!schedRoster[key]) schedRoster[key] = Object.assign({}, existing, { work_date: nextDate, id: null });
+    });
+  });
+  if (!DEV_READ_ONLY && upserts.length) {
+    var res = await sb.from('roster').upsert(upserts, { onConflict: 'staff_id,work_date', ignoreDuplicates: true });
+    if (res.error) console.error('Copy error:', res.error);
+  }
+  schedWeekStart = addDays(schedWeekStart, 7);
+  await loadSchedData();
+  renderSchedView();
+}
+
+// ── Print ──
+function schedPrint() {
+  var today = formatDate(new Date());
+  var days = []; for (var i = 0; i < 7; i++) days.push(addDays(schedWeekStart, i));
+  var dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var weekStr = days[0].toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' – ' +
+    days[6].toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+  var html = '<div class="sch-print-header"><h2>Roberto\'s DIFC — Kitchen Roster</h2>' +
+    '<p>Week: ' + weekStr + ' &nbsp;|&nbsp; Printed: ' +
+    new Date().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) + '</p></div>';
+  html += '<table class="sch-print-table"><thead><tr><th class="pt-name">Name</th><th class="pt-role">Role</th>';
+  for (var di2 = 0; di2 < days.length; di2++) {
+    html += '<th' + (formatDate(days[di2]) === today ? ' class="pt-today"' : '') + '>' +
+      dayNames[di2] + ' ' + days[di2].toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + '</th>';
+  }
+  html += '<th>Hours</th><th>Days</th></tr></thead><tbody>';
+  STATIONS_SCH.forEach(function(st) {
+    var stStaff = schedStaff.filter(function(s){ return s.station_key === st.key; });
+    if (!stStaff.length) return;
+    html += '<tr class="pt-station"><td colspan="11">' + st.label.toUpperCase() + '</td></tr>';
+    stStaff.forEach(function(staff) {
+      var wh = 0, wd = 0;
+      html += '<tr><td class="pt-name">' + staff.name + '</td><td class="pt-role">' + staff.designation + '</td>';
+      days.forEach(function(d) {
+        var ds = formatDate(d);
+        var row = schedRoster[schedRosterKey(staff.id, ds)];
+        var isToday = ds === today;
+        if (!row || row.status === 'working') {
+          var ts = row ? formatTime(row.shift_start) : '';
+          var te = row ? formatTime(row.shift_end) : '';
+          var h = calcHours(ts, te);
+          if (ts && te) { wh += h; wd++; }
+          html += '<td' + (isToday ? ' class="pt-today"' : '') + '>' + (ts && te ? ts + '–' + te : '') + '</td>';
+        } else {
+          var meta = STATUS_META[row.status] || { label: row.status.toUpperCase() };
+          if (row.status !== 'off') wd++;
+          html += '<td class="pt-off pt-leave">' + meta.label + '</td>';
+        }
+      });
+      html += '<td><strong>' + (wh > 0 ? wh + 'h' : '—') + '</strong></td><td>' + (wd||'—') + '</td></tr>';
+    });
+  });
+  html += '</tbody></table>';
+  var printDoc = '<!doctype html><html><head><title>Robertos Kitchen Roster</title>' +
+    '<style>' +
+    '@page{size:A4 landscape;margin:8mm}' +
+    'body{font-family:Arial,sans-serif;color:#2a1a10;margin:0}' +
+    '.sch-print-header{margin-bottom:8px}' +
+    '.sch-print-header h2{font-size:13px;margin:0 0 2px;color:#410207}' +
+    '.sch-print-header p{font-size:9px;color:#666;margin:0}' +
+    '.sch-print-table{width:100%;border-collapse:collapse;font-size:9px}' +
+    '.sch-print-table th{background:#410207;color:#fff;padding:5px 4px;text-align:center;border:1px solid #999;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.sch-print-table th.pt-name{text-align:left;padding-left:6px;min-width:130px}' +
+    '.sch-print-table td{padding:4px 4px;border:1px solid #ccc;text-align:center;font-size:9px}' +
+    '.sch-print-table td.pt-name{text-align:left;padding-left:6px;font-weight:600}' +
+    '.sch-print-table td.pt-role{text-align:left;font-size:8px;color:#666}' +
+    '.sch-print-table tr.pt-station td{background:#f5f5f5;font-weight:700;font-size:8px;letter-spacing:1px;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.sch-print-table td.pt-today{background:#e8f5e9;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.sch-print-table td.pt-off{color:#999}' +
+    '.sch-print-table td.pt-leave{background:#fff9c4;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '</style></head><body>' + html + '</body></html>';
+  var w = window.open('', '_blank');
+  if (!w) {
+    document.getElementById('sch-print-area').innerHTML = html;
+    setTimeout(function(){ window.print(); }, 100);
+    return;
+  }
+  w.document.open();
+  w.document.write(printDoc);
+  w.document.close();
+  w.focus();
+  setTimeout(function(){ w.print(); }, 150);
+}
+
+// ── Send to HR (email-ready roster, no manual attachment) ──
+async function schedSendToHR() {
+  var btn = document.getElementById('svt-hr');
+  if (btn) { btn.textContent = 'Preparing...'; btn.disabled = true; }
+
+  try {
+    var days = [];
+    for (var i = 0; i < 7; i++) days.push(addDays(schedWeekStart, i));
+    var dayNames = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    var weekStr = days[0].toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) +
+      ' to ' + days[6].toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+
+    var lines = [];
+    lines.push("Dear HR,");
+    lines.push("");
+    lines.push("Please find below the kitchen roster for the week of " + weekStr + ".");
+    lines.push("");
+    lines.push("ROBERTO'S DIFC - KITCHEN ROSTER");
+    lines.push("Week: " + weekStr);
+    lines.push("");
+
+    STATIONS_SCH.forEach(function(st) {
+      var stStaff = schedStaff.filter(function(s){ return s.station_key === st.key; });
+      if (!stStaff.length) return;
+      lines.push(st.label.toUpperCase());
+      lines.push("Name | Role | " + dayNames.map(function(dn, idx){
+        return dn + " " + days[idx].toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+      }).join(" | ") + " | Hours | Days");
+      lines.push("-".repeat(110));
+
+      stStaff.forEach(function(staff) {
+        var wHours = 0, wDays = 0;
+        var row = [staff.name, staff.designation];
+        days.forEach(function(d) {
+          var ds = formatDate(d);
+          var entry = schedRoster[schedRosterKey(staff.id, ds)];
+          if (!entry || entry.status === 'working') {
+            var ts = entry ? formatTime(entry.shift_start) : '';
+            var te = entry ? formatTime(entry.shift_end) : '';
+            var ts2 = entry ? formatTime(entry.shift_start2) : '';
+            var te2 = entry ? formatTime(entry.shift_end2) : '';
+            if (ts && te) {
+              var h = calcHours(ts, te, ts2, te2);
+              wHours += h;
+              wDays++;
+              var cellVal = ts + "-" + te;
+              if (ts2 && te2) cellVal += " / " + ts2 + "-" + te2;
+              row.push(cellVal);
+            } else {
+              row.push("");
+            }
+          } else {
+            var meta = STATUS_META[entry.status] || { label: entry.status.toUpperCase() };
+            if (entry.status !== 'off') wDays++;
+            row.push(meta.label);
+          }
+        });
+        row.push(wHours > 0 ? wHours + "h" : "");
+        row.push(wDays || "");
+        lines.push(row.join(" | "));
+      });
+      lines.push("");
+    });
+
+    lines.push("Please do not hesitate to contact me if you need any clarification.");
+    lines.push("");
+    lines.push("Best regards,");
+    lines.push("Kitchen Management");
+    lines.push("Roberto's DIFC");
+
+    var bodyText = lines.join("\n");
+    var subject = "Kitchen Roster: " + weekStr;
+    var to = "hr@robertos.ae,lmadlag@robertos.ae,dsaxena@robertos.ae";
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(bodyText);
+      }
+    } catch(copyErr) {
+      console.warn('Clipboard copy failed:', copyErr);
+    }
+
+    var encodedBody = encodeURIComponent(bodyText);
+    var mailBody = encodedBody.length < 7500 ? encodedBody : encodeURIComponent(
+      "Dear HR,\n\nThe kitchen roster for " + weekStr + " has been copied to my clipboard. I will paste it below.\n\nBest regards,\nKitchen Management\nRoberto's DIFC\n\n"
+    );
+    window.location.href = "mailto:" + to + "?subject=" + encodeURIComponent(subject) + "&body=" + mailBody;
+
+    if (encodedBody.length >= 7500) {
+      alert("The roster is too long for the email body, so it has been copied. Paste it into the email before sending.");
+    }
+  } catch(err) {
+    console.error('HR email error:', err);
+    alert('Email failed: ' + err.message);
+  }
+
+  if (btn) {
+    setTimeout(function(){
+      btn.textContent = 'Send to HR';
+      btn.disabled = false;
+    }, 2000);
+  }
+}
+
+function schedLoadScript(src) {
+  return new Promise(function(resolve, reject) {
+    if (document.querySelector('script[src="' + src + '"]')) { resolve(); return; }
+    var s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -24,7 +24,7 @@
 }
 body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-webkit-font-smoothing:antialiased}
 
-/* ── LOADING ── */
+/* â”€â”€ LOADING â”€â”€ */
 #loading{position:fixed;inset:0;background:var(--vino);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:999}
 #loading img{height:40px;filter:brightness(0) invert(1);opacity:.9}
 .loading-dots{display:flex;gap:6px}
@@ -34,7 +34,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 @keyframes pulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
 #loading.hidden{display:none}
 
-/* ── HEADER ── */
+/* â”€â”€ HEADER â”€â”€ */
 .app-header{background:var(--sabbia);padding:14px 18px 0;border-bottom:2px solid var(--vino);position:sticky;top:0;z-index:50}
 .top-row{display:flex;align-items:center;justify-content:space-between;padding-bottom:10px}
 .logo-img{height:32px;width:auto;display:block}
@@ -54,13 +54,13 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .stab-badge{display:inline-block;margin-left:4px;font-size:8px;font-weight:600;padding:1px 5px;border-radius:2px;vertical-align:middle}
 .tb-sos{background:#cc0000;color:#fff}.tb-bu{background:#c49200;color:#fff}
 
-/* ── LEGEND ── */
+/* â”€â”€ LEGEND â”€â”€ */
 .legend{display:flex;gap:14px;padding:9px 18px;background:var(--cream);border-bottom:1px solid var(--sabbia-dark);flex-wrap:wrap;align-items:center}
 .leg-item{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--vino)}
 .leg-sq{width:34px;height:22px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;letter-spacing:.8px}
 .sq-sos{background:#cc0000;color:#fff}.sq-bu{background:#c49200;color:#fff}.sq-ok{background:var(--oliva);color:#fff}
 
-/* ── COUNTER ── */
+/* â”€â”€ COUNTER â”€â”€ */
 .sec-counter{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 18px;background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark)}
 .sc-card{border-radius:4px;padding:10px 8px 8px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;outline:2px solid transparent;transition:opacity .15s}
 .sc-card:hover{opacity:.88}.sc-card.filter-active{outline:2px solid var(--vino)}
@@ -76,7 +76,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .filter-label{font-size:11px;color:var(--vino)}
 .clear-filter{font-size:11px;color:var(--vino-light);background:none;border:1px solid var(--sabbia-dark);border-radius:3px;padding:3px 10px;cursor:pointer;margin-left:auto}
 
-/* ── CONTENT ── */
+/* â”€â”€ CONTENT â”€â”€ */
 .content{padding:14px 18px 24px;background:var(--sabbia)}
 .subsec-title{font-size:11px;letter-spacing:3px;text-transform:uppercase;color:var(--vino-light);padding:14px 2px 6px 10px;border-bottom:1px solid var(--sabbia-dark);border-left:3px solid var(--vino);margin-bottom:8px;display:flex;align-items:center;gap:8px;font-family:var(--font-sans)}
 .subsec-title:first-child{padding-top:2px}
@@ -121,7 +121,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .ic-no{background:none;border:1.5px solid var(--sabbia-dark);color:var(--vino-light);border-radius:3px;font-size:9px;padding:3px 8px;cursor:pointer;white-space:nowrap}
 .prep-row:not(.status-none) .ic-no{border-color:rgba(255,255,255,.4);color:rgba(255,255,255,.7)}
 
-/* ── PASS VIEW ── */
+/* â”€â”€ PASS VIEW â”€â”€ */
 .pass-view{padding:16px 18px 32px;background:var(--sabbia)}
 .pass-hero{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}
 .pass-hero-card{border-radius:6px;padding:14px 10px 12px;display:flex;flex-direction:column;align-items:center;gap:5px}
@@ -155,7 +155,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .pass-progress-track{height:6px;background:var(--sabbia-dark);border-radius:3px;overflow:hidden;display:flex}
 .pass-progress-ok{background:var(--oliva);transition:width .4s}.pass-progress-bu{background:#c49200;transition:width .4s}.pass-progress-sos{background:#cc0000;border-radius:0 3px 3px 0;transition:width .4s}
 
-/* ── REPORT VIEW ── */
+/* â”€â”€ REPORT VIEW â”€â”€ */
 .report-view{padding:16px 18px 40px;background:var(--sabbia)}
 .report-header{margin-bottom:20px}
 .report-title{font-family:var(--font-serif);font-size:24px;color:var(--vino);margin-bottom:4px}
@@ -185,7 +185,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .report-empty{font-size:13px;color:var(--vino-light);font-style:italic;padding:20px;text-align:center;font-family:var(--font-serif)}
 .report-no-data{font-size:13px;color:var(--vino-light);font-style:italic;text-align:center;padding:30px;font-family:var(--font-serif)}
 
-/* ── ADD SECTION ── */
+/* â”€â”€ ADD SECTION â”€â”€ */
 .add-section{padding:0 18px 32px;background:var(--sabbia)}
 .add-dish-block{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:4px;overflow:hidden}
 .add-dish-header{background:var(--sabbia-light);padding:10px 14px;border-bottom:1px solid var(--sabbia-dark);display:flex;align-items:center;gap:8px}
@@ -202,18 +202,18 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .add-field{display:flex;flex-direction:column;gap:3px;flex:1;min-width:120px}
 .add-note{font-size:11px;color:var(--vino-light);font-style:italic;padding:0 14px 10px;font-family:var(--font-serif)}
 
-/* ── FOOTER ── */
+/* â”€â”€ FOOTER â”€â”€ */
 .footer-bar{background:var(--cream);border-top:1px solid var(--sabbia-dark);padding:10px 18px;display:flex;align-items:center;justify-content:space-between}
 .foot-label{font-size:11px;color:var(--vino-light);font-style:italic;font-family:var(--font-serif)}
 .reset-btn{font-size:11px;color:#cc0000;background:none;border:1px solid #cc0000;border-radius:3px;padding:5px 12px;cursor:pointer;opacity:.55;transition:opacity .2s}
 .reset-btn:hover{opacity:1;background:#cc0000;color:#fff}
 
-/* ── UNDO TOAST ── */
+/* â”€â”€ UNDO TOAST â”€â”€ */
 .undo-toast{display:none;position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--vino);color:var(--cream);border-radius:6px;padding:11px 18px;font-size:12px;z-index:200;align-items:center;gap:14px;white-space:nowrap;box-shadow:0 4px 20px rgba(65,2,7,.4)}
 .undo-toast.visible{display:flex}
 .undo-btn{background:var(--cream);color:var(--vino);border:none;border-radius:3px;font-size:11px;font-weight:600;padding:4px 12px;cursor:pointer}
 
-/* ── SYNC INDICATOR ── */
+/* â”€â”€ SYNC INDICATOR â”€â”€ */
 .sync-flash{position:fixed;top:0;left:0;right:0;height:2px;background:var(--pomodoro);transform:scaleX(0);transform-origin:left;transition:transform .3s;z-index:999}
 .sync-flash.active{transform:scaleX(1)}
 
@@ -346,6 +346,160 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   .order-row,.report-row{grid-template-columns:1fr;gap:4px}
 }
 
+
+/* â”€â”€ SCHEDULING MODULE â”€â”€ */
+.sch-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:10px 16px;background:var(--vino);border-bottom:2px solid var(--vino-light);flex-shrink:0}
+.sch-nav{display:flex;align-items:center;gap:8px}
+.sch-nav-btn{width:32px;height:32px;border-radius:4px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:var(--cream);font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.sch-nav-btn:hover{background:rgba(255,255,255,.25)}
+.sch-week-label{font-family:var(--font-serif);font-size:15px;color:var(--cream);letter-spacing:.5px;min-width:180px;text-align:center}
+.sch-today-btn{padding:6px 12px;border-radius:4px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:var(--cream);font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans)}
+.sch-today-btn:hover{background:rgba(255,255,255,.25)}
+.sch-view-tabs{display:flex;gap:6px}
+.sch-vtab{padding:6px 14px;border-radius:4px;border:1px solid rgba(255,255,255,.2);background:transparent;color:rgba(255,255,255,.6);font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans);transition:all .15s}
+.sch-vtab.active,.sch-vtab:hover{background:var(--cream);color:var(--vino)}
+
+/* Grid */
+.sch-grid{width:100%;border-collapse:collapse;font-family:var(--font-sans);font-size:12px}
+.sch-grid th{background:var(--vino);color:var(--cream);padding:8px 6px;text-align:center;font-size:11px;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;border:1px solid rgba(255,255,255,.15);position:sticky;top:0;z-index:2}
+.sch-grid th.sch-th-name{text-align:left;padding-left:12px;min-width:160px;position:sticky;left:0;z-index:3}
+.sch-grid th.sch-th-today{background:var(--oliva);color:var(--cream)}
+.sch-grid th.sch-th-role{min-width:120px;text-align:left;padding-left:8px}
+.sch-grid td{padding:4px 4px;border:1px solid var(--sabbia-dark);vertical-align:middle;text-align:center}
+.sch-grid td.sch-td-name{text-align:left;padding:6px 12px;background:var(--sabbia-light);font-size:13px;color:var(--ink);font-weight:600;position:sticky;left:0;white-space:nowrap}
+.sch-grid td.sch-td-role{text-align:left;padding:4px 8px;background:var(--sabbia-light);font-size:11px;color:var(--vino-light);white-space:nowrap}
+.sch-grid tr.sch-station-hdr td{background:var(--vino);color:var(--cream);font-size:10px;letter-spacing:2px;text-transform:uppercase;padding:6px 12px;font-weight:700}
+.sch-grid tr:hover td:not(.sch-td-name){filter:brightness(.97)}
+
+/* Hours column */
+.sch-td-hours{background:var(--sabbia-light);font-size:12px;color:var(--vino);font-weight:700;min-width:44px}
+.sch-td-days{background:var(--sabbia-light);font-size:12px;color:var(--vino-light);min-width:32px}
+
+/* Shift cell */
+.sch-cell{cursor:pointer;min-width:88px;padding:3px 2px}
+.sch-cell:hover .sch-shift{box-shadow:0 0 0 2px var(--vino)}
+.sch-shift{border-radius:3px;padding:3px 5px;font-size:11px;line-height:1.3;transition:box-shadow .1s}
+.sch-shift.working{background:#f0ebe3;color:var(--ink);border:1px solid var(--sabbia-dark)}
+.sch-shift.off{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;font-weight:700}
+.sch-shift.wo{background:#dbeafe;color:#1e40af;border:1px solid #93c5fd}
+.sch-shift.sl{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+.sch-shift.al{background:#d1fae5;color:#065f46;border:1px solid #6ee7b7}
+.sch-shift.ph{background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd}
+.sch-shift.em{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.sch-shift.tr{background:#ccfbf1;color:#134e4a;border:1px solid #5eead4}
+.sch-shift.cat{background:#ffedd5;color:#9a3412;border:1px solid #fdba74}
+.sch-shift.empty{background:transparent;border:1px dashed var(--sabbia-dark);color:#bbb;font-size:10px}
+
+/* Today highlight */
+.sch-cell-today .sch-shift{border-color:var(--oliva)!important}
+
+/* Day view */
+.sch-day-section{margin-bottom:20px}
+.sch-day-section-title{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--vino-light);padding:8px 0 6px 10px;border-left:3px solid var(--vino);margin-bottom:8px;font-family:var(--font-sans)}
+.sch-day-row{display:flex;align-items:center;padding:10px 14px;border-bottom:1px solid var(--sabbia-dark);gap:12px}
+.sch-day-name{font-size:15px;flex:1;font-family:var(--font-serif);color:var(--ink)}
+.sch-day-role{font-size:11px;color:var(--vino-light);width:120px;letter-spacing:.5px}
+.sch-day-shift{font-size:13px;color:var(--ink);width:120px;text-align:right;font-family:var(--font-sans)}
+.sch-day-hours{font-size:12px;color:var(--vino);width:50px;text-align:right;font-weight:700}
+.sch-day-badge{border-radius:3px;padding:3px 8px;font-size:11px;font-weight:700;letter-spacing:.5px}
+
+/* Modal */
+.sch-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center}
+.sch-modal-box{background:var(--cream);border-radius:6px;padding:24px;min-width:300px;max-width:380px;width:90%}
+.sch-modal-title{font-family:var(--font-serif);font-size:16px;color:var(--vino);margin-bottom:16px;letter-spacing:.5px}
+.sch-modal-row{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.sch-modal-label{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--vino-light);width:52px;flex-shrink:0;font-family:var(--font-sans)}
+.sch-modal-sel,.sch-modal-inp{flex:1;padding:8px 10px;border:1px solid var(--sabbia-dark);border-radius:4px;font-size:13px;font-family:var(--font-sans);background:var(--sabbia-light);color:var(--ink)}
+.sch-modal-sel:focus,.sch-modal-inp:focus{outline:none;border-color:var(--vino)}
+.sch-modal-times{margin-bottom:4px}
+.sch-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.sch-modal-cancel{padding:8px 16px;border:1px solid var(--sabbia-dark);border-radius:4px;background:none;color:var(--vino-light);font-size:12px;cursor:pointer;font-family:var(--font-sans)}
+.sch-modal-save{padding:8px 20px;border:none;border-radius:4px;background:var(--vino);color:var(--cream);font-size:12px;cursor:pointer;font-family:var(--font-sans);letter-spacing:.5px}
+.sch-modal-save:hover{background:var(--vino-light)}
+
+/* Print styles */
+@media print {
+  body > * { display: none !important; }
+  #scheduling-view {
+    display: block !important;
+    overflow: visible !important;
+  }
+  #scheduling-view > *:not(#sch-print-area) { display: none !important; }
+  #sch-print-area {
+    display: block !important;
+    position: static !important;
+  }
+  @page { size: A4 landscape; margin: 8mm; }
+  .sch-print-table { width:100%; border-collapse:collapse; font-size:9px; font-family:Arial,sans-serif; }
+  .sch-print-table th { background:#410207!important; color:#fff!important; padding:5px 4px; text-align:center; border:1px solid #999; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .sch-print-table th.pt-name { text-align:left; padding-left:6px; min-width:130px; }
+  .sch-print-table td { padding:4px 4px; border:1px solid #ccc; text-align:center; font-size:9px; }
+  .sch-print-table td.pt-name { text-align:left; padding-left:6px; font-weight:600; }
+  .sch-print-table td.pt-role { text-align:left; font-size:8px; color:#666; }
+  .sch-print-table tr.pt-station td { background:#f5f5f5!important; font-weight:700; font-size:8px; letter-spacing:1px; text-transform:uppercase; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .sch-print-table td.pt-today { background:#e8f5e9!important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .sch-print-table td.pt-off { color:#999; }
+  .sch-print-table td.pt-leave { background:#fff9c4!important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .sch-print-header { margin-bottom:8px; font-family:Arial,sans-serif; }
+  .sch-print-header h2 { font-size:13px; margin:0 0 2px; }
+  .sch-print-header p { font-size:9px; color:#666; margin:0; }
+}
+
+
+.sch-copy-btn{padding:6px 14px;border-radius:4px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:var(--cream);font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans);transition:all .15s;margin-left:8px}
+.sch-copy-btn:hover{background:rgba(255,255,255,.28)}
+.sch-copy-confirm{display:flex;align-items:center;gap:10px;padding:10px 16px;background:#e8f0e8;border-bottom:1px solid #a8c8a8;font-size:13px;font-family:var(--font-sans);color:#2d5a2d}
+.sch-copy-confirm button{padding:5px 14px;border-radius:4px;font-size:11px;cursor:pointer;font-family:var(--font-sans);letter-spacing:.5px;text-transform:uppercase}
+.sch-copy-yes{background:#2d5a2d;color:#fff;border:none}
+.sch-copy-no{background:none;border:1px solid #2d5a2d;color:#2d5a2d}
+/* Drag states */
+.sch-grid tr.sch-dragging td{opacity:.4}
+.sch-grid tr.sch-drag-over td.sch-station-drop-zone{background:rgba(65,2,7,.08)!important;outline:2px dashed var(--vino)}
+.sch-drag-handle{cursor:grab;color:var(--sabbia-dark);font-size:14px;padding-right:4px;user-select:none}
+.sch-drag-handle:hover{color:var(--vino)}
+.sch-station-drop-zone{transition:background .1s}
+/* Station override badge */
+.sch-override-badge{font-size:9px;background:var(--oliva);color:#fff;border-radius:2px;padding:1px 4px;margin-left:4px;letter-spacing:.5px;vertical-align:middle}
+/* Copy confirm banner */
+#sch-copy-banner{display:none}
+
+
+.sch-td-move{width:80px;padding:4px 6px;white-space:nowrap;vertical-align:middle}
+.sch-move-btn{background:none;border:1px solid var(--sabbia-dark);color:var(--vino-light);border-radius:3px;font-size:10px;letter-spacing:.8px;padding:4px 8px;cursor:pointer;text-transform:uppercase;white-space:nowrap;font-family:var(--font-sans);transition:all .15s}
+.sch-move-btn:hover{border-color:var(--vino);color:var(--vino)}
+.sch-move-panel{display:none;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px}
+.sch-move-panel.show{display:flex}
+.sch-move-label{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--vino-light);white-space:nowrap;font-family:var(--font-sans)}
+
+
+.sch-time-row{display:flex;align-items:center;gap:6px;flex:1}
+.sch-time-sel{flex:1;padding:10px 8px;border:1px solid var(--sabbia-dark);border-radius:4px;font-size:18px;font-family:var(--font-sans);background:var(--sabbia-light);color:var(--ink);text-align:center;cursor:pointer;font-weight:600}
+.sch-time-sel:focus{outline:none;border-color:var(--vino)}
+.sch-time-sep{font-size:20px;font-weight:700;color:var(--vino);flex-shrink:0}
+
+
+/* Delete + Add staff */
+.sch-del-btn{display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;background:transparent;color:var(--sabbia-dark);font-size:14px;font-weight:700;cursor:pointer;margin-right:6px;transition:all .15s;flex-shrink:0}
+.sch-del-btn:hover{background:#cc0000;color:#fff}
+.sch-add-row td{padding:4px 8px;border-bottom:2px solid var(--sabbia-dark)}
+.sch-add-staff-btn{background:none;border:1px dashed var(--sabbia-dark);color:var(--vino-light);border-radius:3px;font-size:11px;letter-spacing:.8px;padding:5px 12px;cursor:pointer;text-transform:uppercase;font-family:var(--font-sans);transition:all .15s}
+.sch-add-staff-btn:hover{border-color:var(--vino);color:var(--vino)}
+.sch-add-staff-panel{display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px}
+.sch-add-staff-panel.show{display:flex}
+.sch-add-name-inp,.sch-add-role-inp{padding:6px 10px;border:1px solid var(--sabbia-dark);border-radius:3px;font-size:13px;font-family:var(--font-sans);background:var(--cream);color:var(--ink);width:160px}
+.sch-add-name-inp:focus,.sch-add-role-inp:focus{outline:none;border-color:var(--vino)}
+
+
+.sch-split-toggle{background:none;border:1px dashed var(--sabbia-dark);color:var(--vino-light);border-radius:3px;font-size:11px;letter-spacing:.8px;padding:5px 12px;cursor:pointer;text-transform:uppercase;font-family:var(--font-sans);transition:all .15s}
+.sch-split-toggle:hover{border-color:var(--vino);color:var(--vino)}
+.sch-split-toggle.active{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+
+
+.sch-toolbar-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.sch-hr-btn{padding:6px 14px;border-radius:4px;border:1px solid #fcd34d;background:rgba(252,211,77,.15);color:#fcd34d;font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans);transition:all .15s;font-weight:700}
+.sch-hr-btn:hover{background:#fcd34d;color:var(--vino)}
+.sch-hr-btn:disabled{opacity:.5;cursor:wait}
+
 </style>
 </head>
 <body>
@@ -385,12 +539,12 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     <button class="home-tile secondary" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
     <button class="home-tile secondary" onclick="openOrderInventory()"><span class="home-code">ORD</span><span><span class="home-name">Order Inventory</span><span class="home-meta">Quantities, prices, totals</span></span></button>
     <button class="home-tile secondary" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Search dishes, ingredients, method</span></span></button>
-    <button class="home-tile disabled" type="button"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Coming next</span></span></button>
+    <button class="home-tile" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
   </div>
 </div>
 
 <div id="legend-bar" class="legend">
-  <div class="leg-item"><div class="leg-sq sq-sos">SOS</div> Not enough — prioritise now</div>
+  <div class="leg-item"><div class="leg-sq sq-sos">SOS</div> Not enough â€” prioritise now</div>
   <div class="leg-item"><div class="leg-sq sq-bu">BU</div> Enough to start, need more</div>
   <div class="leg-item"><div class="leg-sq sq-ok">OK</div> Good for the full day</div>
 </div>
@@ -406,7 +560,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="report-view" class="report-view" style="display:none">
   <div class="report-header">
     <div class="report-title">Service Reports</div>
-    <div class="report-subtitle">SOS · BU · OK history by date</div>
+    <div class="report-subtitle">SOS Â· BU Â· OK history by date</div>
   </div>
   <div class="report-controls">
     <div class="report-date-field">
@@ -451,9 +605,126 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="order-items.js"></script>
-<script src="recipes.js"></script>
-<script src="app.js"></script>
+<script src="order-items.js?v=1781013045"></script>
+<script src="recipes.js?v=1781013045"></script>
+<script src="app.js?v=1781025544"></script>
+
+
+<!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
+<div id="scheduling-view" style="display:none;flex:1;overflow:hidden;flex-direction:column">
+
+  <!-- Toolbar -->
+  <div class="sch-toolbar">
+    <div class="sch-nav">
+      <button class="sch-nav-btn" onclick="schedWeekOffset(-1)">&#8592;</button>
+      <span id="sch-week-label" class="sch-week-label"></span>
+      <button class="sch-nav-btn" onclick="schedWeekOffset(1)">&#8594;</button>
+      <button class="sch-today-btn" onclick="schedGoToday()">Today</button>
+    </div>
+    <div class="sch-view-tabs">
+      <button class="sch-vtab active" id="svt-week" onclick="schedSetView('week')">Week</button>
+      <button class="sch-vtab" id="svt-day" onclick="schedSetView('day')">Today</button>
+      <button class="sch-vtab" id="svt-print" onclick="schedPrint()">&#128438; Print</button>
+    </div>
+    <div class="sch-toolbar-actions">
+      <button class="sch-copy-btn" id="sch-fill-btn" onclick="schedFillWeek()">&#8595; Fill week</button>
+      <button class="sch-copy-btn" onclick="schedCopyToNextWeek()">&#8635; Copy week</button>
+      <button class="sch-hr-btn" id="svt-hr" onclick="schedSendToHR()">&#128231; Send to HR</button>
+    </div>
+  </div>
+
+  <!-- Copy confirm banner -->
+  <div id="sch-copy-banner" class="sch-copy-confirm">
+    <span id="sch-copy-msg"></span>
+    <button class="sch-copy-yes" onclick="schedConfirmCopy()">Yes, copy</button>
+    <button class="sch-copy-no" onclick="schedDismissCopy()">Cancel</button>
+  </div>
+
+  <!-- Weekly grid -->
+  <div id="sch-week-view" style="flex:1;overflow:auto">
+    <div id="sch-grid-wrap"></div>
+  </div>
+
+  <!-- Day view -->
+  <div id="sch-day-view" style="display:none;flex:1;overflow:auto;padding:16px">
+    <div id="sch-day-content"></div>
+  </div>
+
+  <!-- Print template -->
+  <div id="sch-print-area" style="display:none"></div>
+</div>
+
+
+<!-- Scheduling modal â€” at body level to avoid overflow:hidden clipping -->
+<div id="sch-modal" class="sch-modal-overlay" style="display:none" onclick="schedCloseModal(event)">
+  <div class="sch-modal-box">
+    <div class="sch-modal-title" id="sch-modal-title">Edit Shift</div>
+    <div class="sch-modal-row">
+      <label class="sch-modal-label">Status</label>
+      <select id="sch-status-sel" class="sch-modal-sel" onchange="schedStatusChange()">
+        <option value="working">Working</option>
+        <option value="off">Day Off</option>
+        <option value="wo">Week Off (WO)</option>
+        <option value="sl">Sick Leave (SL)</option>
+        <option value="al">Annual Leave (AL)</option>
+        <option value="ph">Public Holiday (PH)</option>
+        <option value="em">Emergency (EM)</option>
+        <option value="tr">Training (TR)</option>
+        <option value="cat">Catering (CAT)</option>
+      </select>
+    </div>
+    <div id="sch-time-fields" class="sch-modal-times">
+      <div class="sch-modal-row">
+        <label class="sch-modal-label">Start</label>
+        <div class="sch-time-row">
+          <select id="sch-start-h" class="sch-time-sel"><option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option><option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option><option value="08">08</option><option value="09">09</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option></select>
+          <span class="sch-time-sep">:</span>
+          <select id="sch-start-m" class="sch-time-sel"><option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option></select>
+        </div>
+      </div>
+      <div class="sch-modal-row">
+        <label class="sch-modal-label">End</label>
+        <div class="sch-time-row">
+          <select id="sch-end-h" class="sch-time-sel"><option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option><option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option><option value="08">08</option><option value="09">09</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option></select>
+          <span class="sch-time-sep">:</span>
+          <select id="sch-end-m" class="sch-time-sel"><option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option></select>
+        </div>
+      </div>
+      <div class="sch-modal-row" style="margin-top:4px">
+        <label class="sch-modal-label"></label>
+        <button type="button" class="sch-split-toggle" id="sch-split-toggle" onclick="schedToggleSplit()">+ Add split shift</button>
+      </div>
+      <div id="sch-split-fields" style="display:none">
+        <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--vino-light);padding:8px 0 4px;font-family:var(--font-sans)">Second block</div>
+        <div class="sch-modal-row">
+          <label class="sch-modal-label">In again</label>
+          <div class="sch-time-row">
+            <select id="sch-start2-h" class="sch-time-sel"><option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option><option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option><option value="08">08</option><option value="09">09</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option></select>
+            <span class="sch-time-sep">:</span>
+            <select id="sch-start2-m" class="sch-time-sel"><option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option></select>
+          </div>
+        </div>
+        <div class="sch-modal-row">
+          <label class="sch-modal-label">Out again</label>
+          <div class="sch-time-row">
+            <select id="sch-end2-h" class="sch-time-sel"><option value="00">00</option><option value="01">01</option><option value="02">02</option><option value="03">03</option><option value="04">04</option><option value="05">05</option><option value="06">06</option><option value="07">07</option><option value="08">08</option><option value="09">09</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option><option value="21">21</option><option value="22">22</option><option value="23">23</option></select>
+            <span class="sch-time-sep">:</span>
+            <select id="sch-end2-m" class="sch-time-sel"><option value="00">00</option><option value="15">15</option><option value="30">30</option><option value="45">45</option></select>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="sch-modal-row">
+      <label class="sch-modal-label">Notes</label>
+      <input type="text" id="sch-notes-inp" class="sch-modal-inp" placeholder="Optional note..."/>
+    </div>
+    <div class="sch-modal-actions">
+      <button class="sch-modal-cancel" onclick="schedCloseModal()">Cancel</button>
+      <button class="sch-modal-save" onclick="schedSaveShift()">Save</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
+
