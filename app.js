@@ -66,7 +66,8 @@ async function loadPrepList() {
             id: d.id,
             name: d.name,
             extra: false,
-            items: componentsData.filter(c => c.dish_id === d.id).map(c => c.name)
+            items: componentsData.filter(c => c.dish_id === d.id).map(c => c.name),
+            components: componentsData.filter(c => c.dish_id === d.id).map(c => ({id: c.id, name: c.name}))
           }))
       }))
   }));
@@ -97,6 +98,41 @@ function subscribeRealtime() {
           flashSync();
           if (activeStation === PASS_KEY) renderPassView();
           else { renderCounter(); updateRowUI(id, newStatus); applyFilter(); renderTabs(); }
+        }
+      })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dishes' },
+      payload => {
+        const r = payload.new;
+        if (!r || r.active !== false) return;
+        // A dish was soft-deleted on another screen — remove it locally and re-render
+        for (const st of STATIONS) {
+          for (const ss of st.subsections) {
+            const di = ss.dishes.findIndex(d => d.id === r.id);
+            if (di !== -1) { ss.dishes.splice(di, 1); flashSync(); renderTabs(); renderCounter(); renderContent(); return; }
+          }
+        }
+      })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dish_components' },
+      payload => {
+        const r = payload.new;
+        if (!r || r.active !== false) return;
+        // A component was soft-deleted on another screen — remove it locally and re-render
+        for (const st of STATIONS) {
+          for (const ss of st.subsections) {
+            for (const dish of ss.dishes) {
+              if (!dish.components) continue;
+              const ci = dish.components.findIndex(c => c.id === r.id);
+              if (ci !== -1) {
+                dish.items.splice(ci, 1);
+                dish.components.splice(ci, 1);
+                if (dish.items.length === 0) {
+                  const di = ss.dishes.findIndex(d => d.name === dish.name);
+                  if (di !== -1) ss.dishes.splice(di, 1);
+                }
+                flashSync(); renderTabs(); renderCounter(); renderContent(); return;
+              }
+            }
+          }
         }
       })
     .subscribe(status => {
@@ -929,6 +965,10 @@ function deleteDish(stKey,ssKey,dishName,did){
   const removed=ss.dishes.splice(di,1)[0];
   const savedState={};removed.items.forEach(item=>{const id=mkId(stKey,ssKey,dishName,item);savedState[item]=state[id]||'none';delete state[id];});
   undoStack={type:'dish',stKey,ssKey,dish:removed,idx:di,savedState};
+  // Sync to Supabase so all screens reflect the removal
+  if(!DEV_READ_ONLY && removed.id){
+    sb.from('dishes').update({active:false}).eq('id',removed.id);
+  }
   showUndo(`"${dishName}" removed`);renderTabs();renderCounter();renderContent();
 }
 
@@ -937,8 +977,17 @@ function showItemConfirm(ikey,encId){document.getElementById(ikey).classList.add
 function cancelItemConfirm(ikey,encId){document.getElementById(ikey).classList.remove('visible');document.getElementById('sb-'+encId).style.display='';document.getElementById('idb-'+encId).style.display='';}
 function deleteItem(id,stKey,ssKey,dishName,idx,ikey){
   const st=STATIONS.find(s=>s.key===stKey);const ss=st.subsections.find(s=>s.key===ssKey);const dish=ss.dishes.find(d=>d.name===dishName);
-  if(!dish)return;const itemName=dish.items[idx];const savedStatus=state[id]||'none';delete state[id];dish.items.splice(idx,1);
-  if(dish.items.length===0){const di=ss.dishes.findIndex(d=>d.name===dishName);const rd=ss.dishes.splice(di,1)[0];undoStack={type:'dish',stKey,ssKey,dish:rd,idx:di,savedState:{}};}
+  if(!dish)return;const itemName=dish.items[idx];const savedStatus=state[id]||'none';delete state[id];
+  const removedComp=dish.components?dish.components[idx]:null;
+  dish.items.splice(idx,1);
+  if(dish.components)dish.components.splice(idx,1);
+  // Sync to Supabase so all screens reflect the removal
+  if(!DEV_READ_ONLY && removedComp && removedComp.id){
+    sb.from('dish_components').update({active:false}).eq('id',removedComp.id);
+  }
+  if(dish.items.length===0){const di=ss.dishes.findIndex(d=>d.name===dishName);const rd=ss.dishes.splice(di,1)[0];undoStack={type:'dish',stKey,ssKey,dish:rd,idx:di,savedState:{}};
+    if(!DEV_READ_ONLY && rd.id)sb.from('dishes').update({active:false}).eq('id',rd.id);
+  }
   else undoStack={type:'item',stKey,ssKey,dishName,itemName,idx,savedStatus};
   showUndo(`"${itemName}" removed`);renderTabs();renderCounter();renderContent();
 }
