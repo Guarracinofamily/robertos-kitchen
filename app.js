@@ -25,6 +25,7 @@ let activeOrderDate = TODAY;
 let activeRecipeId = null;
 let activeCheckStation = null;
 let activeStation = PASS_KEY;
+let passRefreshTimer = null;
 let activeFilter = null;
 let undoStack = null;
 let undoTimer = null;
@@ -41,8 +42,6 @@ async function init() {
   loadOrderQuantities();
   if (!DEV_READ_ONLY) subscribeRealtime();
   populateSelects();
-  prepStructureHash = getPrepHash();
-  setTimeout(pollPrepStructure, 5000);
   openHome();
   document.getElementById('loading').classList.add('hidden');
   const legacyReportDate=document.getElementById('report-date');
@@ -90,7 +89,7 @@ async function loadTodayStatus() {
 
 // â”€â”€ REALTIME SYNC â”€â”€
 function subscribeRealtime() {
-  realtimeChannel = sb.channel('prep_status_changes_' + Math.random().toString(36).substr(2,9))
+  realtimeChannel = sb.channel('prep_status_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'prep_status', filter: `service_date=eq.${TODAY}` },
       payload => {
         const r = payload.new || payload.old;
@@ -104,12 +103,12 @@ function subscribeRealtime() {
           else { renderCounter(); updateRowUI(id, newStatus); applyFilter(); renderTabs(); }
         }
       })
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dishes' }, payload => { refreshPrepStructureFromRealtime(); })
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dishes' }, payload => { refreshPrepStructureFromRealtime(); })
-    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'dishes' }, payload => { refreshPrepStructureFromRealtime(); })
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dish_components' }, payload => { refreshPrepStructureFromRealtime(); })
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dish_components' }, payload => { refreshPrepStructureFromRealtime(); })
-    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'dish_components' }, payload => { refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dishes' }, payload => { console.log('[RT] dishes INSERT', payload); refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dishes' }, payload => { console.log('[RT] dishes UPDATE', payload); refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'dishes' }, payload => { console.log('[RT] dishes DELETE', payload); refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dish_components' }, payload => { console.log('[RT] dish_components INSERT', payload); refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'dish_components' }, payload => { console.log('[RT] dish_components UPDATE', payload); refreshPrepStructureFromRealtime(); })
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'dish_components' }, payload => { console.log('[RT] dish_components DELETE', payload); refreshPrepStructureFromRealtime(); })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'chef_checks', filter: `service_date=eq.${TODAY}` },
       payload => {
         const row = payload.new || payload.old;
@@ -126,6 +125,7 @@ function subscribeRealtime() {
         renderAfterChefCheckSync();
       })
     .subscribe(status => {
+      console.log('[RT] channel status:', status);
       document.getElementById('realtime-dot').classList.toggle('live', status === 'SUBSCRIBED');
     });
 }
@@ -141,32 +141,14 @@ function refreshPrepStructureFromRealtime(){
     else if(activeStation===DASHBOARD_KEY)renderDashboard();
     else if(activeStation===REPORTS_KEY)renderReports();
     else if(activeStation!==HOME_KEY&&activeStation!==ORDER_KEY&&activeStation!==RECIPES_KEY&&activeStation!==SCHED_KEY){renderCounter();renderContent();}
-  },400);
-}
-
-// Polling fallback — checks for prep structure changes every 5 seconds
-// Needed because Supabase free tier does not broadcast DELETE events without a filter
-let prepStructureHash = '';
-function getPrepHash(){
-  return STATIONS.map(st=>st.subsections.map(ss=>ss.dishes.map(d=>d.id).join(',')).join('|')).join(';');
-}
-async function pollPrepStructure(){
-  try {
-    const prev = prepStructureHash;
-    await loadPrepList();
-    const curr = getPrepHash();
-    if(prev && curr !== prev){
-      flashSync();
+    // Second reload after 1.5s to catch read-replica lag
+    setTimeout(async()=>{
+      await loadPrepList();
       renderTabs();
       if(activeStation===PASS_KEY)renderPassView();
-      else if(activeStation===CHECK_KEY)renderCheckView();
-      else if(activeStation===DASHBOARD_KEY)renderDashboard();
-      else if(activeStation===REPORTS_KEY)renderReports();
-      else if(activeStation!==HOME_KEY&&activeStation!==ORDER_KEY&&activeStation!==RECIPES_KEY&&activeStation!==SCHED_KEY){renderCounter();renderContent();}
-    }
-    prepStructureHash = curr;
-  } catch(e){}
-  setTimeout(pollPrepStructure, 5000);
+      else if(activeStation!==HOME_KEY&&activeStation!==ORDER_KEY&&activeStation!==RECIPES_KEY&&activeStation!==SCHED_KEY&&activeStation!==CHECK_KEY&&activeStation!==DASHBOARD_KEY&&activeStation!==REPORTS_KEY){renderCounter();renderContent();}
+    },1500);
+  },400);
 }
 
 function flashSync() {
@@ -311,6 +293,10 @@ function renderTabs() {
 }
 
 // â”€â”€ PASS VIEW â”€â”€
+function updatePassTimestamp(){
+  const el = document.getElementById('pass-timestamp');
+  if(el) el.textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+}
 function renderPassView() {
   const c=allCounts();
   const pct=(v)=>c.total?Math.round(v/c.total*100):0;
@@ -857,6 +843,13 @@ function renderCounter() {
     {cls:'c-pending',key:'none',num:c.none,label:'Pending'},
   ].map(card=>`<div class="sc-card ${card.cls}${activeFilter===card.key?' filter-active':''}" onclick="toggleFilter('${card.key}')"><span class="sc-num">${card.num}</span><span class="sc-label">${card.label}</span></div>`).join('');
   document.getElementById('foot-label').textContent=`${st.label} · ${total} items total`;
+  // All done indicator
+  const allDoneBar = document.getElementById('all-done-bar');
+  if(allDoneBar){
+    const allOK = total > 0 && c.sos === 0 && c.bu === 0 && c.none === 0;
+    allDoneBar.style.display = allOK ? 'flex' : 'none';
+    allDoneBar.textContent = '✓ ' + st.label + ' — All items ready!';
+  }
   const fb=document.getElementById('filter-bar');
   if(activeFilter){fb.classList.add('visible');document.getElementById('filter-label-text').textContent={sos:'SOS only',bu:'Backup only',ok:'OK only',none:'Pending only'}[activeFilter];}
   else fb.classList.remove('visible');
@@ -1197,6 +1190,12 @@ function switchStation(key){
     var pv=document.getElementById('pass-view');if(pv)pv.style.display='block';
     document.getElementById('foot-label').textContent='The Pass · All stations';
     renderPassView();
+    updatePassTimestamp();
+    if(typeof passRefreshTimer !== 'undefined' && passRefreshTimer) clearInterval(passRefreshTimer);
+    passRefreshTimer = setInterval(function(){
+      if(activeStation===PASS_KEY){ renderPassView(); updatePassTimestamp(); }
+      else { clearInterval(passRefreshTimer); passRefreshTimer=null; }
+    }, 60000);
   } else {
     var show={'content':'block','legend-bar':'flex','sec-counter-wrap':'block','add-section-wrap':'block'};
     Object.keys(show).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=show[id];});
@@ -1246,12 +1245,30 @@ async function addDish(){
 }
 
 async function resetAll(){
-  Object.keys(state).forEach(k=>state[k]='none');
-  activeFilter=null;
-  if (!DEV_READ_ONLY) await sb.from('prep_status').delete().eq('service_date',TODAY);
-  renderTabs();
-  if(activeStation===PASS_KEY)renderPassView();
-  else{renderCounter();renderContent();}
+  if(activeStation===PASS_KEY){
+    // On Pass view — reset everything
+    if(!confirm('Reset ALL stations for today?'))return;
+    Object.keys(state).forEach(k=>state[k]='none');
+    activeFilter=null;
+    if(!DEV_READ_ONLY) await sb.from('prep_status').delete().eq('service_date',TODAY);
+    renderTabs();
+    renderPassView();
+  } else {
+    // On a station — reset only that station
+    const st=STATIONS.find(s=>s.key===activeStation);
+    if(!st)return;
+    if(!confirm('Reset ' + st.label + ' only?'))return;
+    st.subsections.forEach(ss=>ss.dishes.forEach(d=>d.items.forEach(item=>{
+      const id=mkId(st.key,ss.key,d.name,item);
+      state[id]='none';
+    })));
+    activeFilter=null;
+    if(!DEV_READ_ONLY) await sb.from('prep_status').delete()
+      .eq('service_date',TODAY).eq('station_key',activeStation);
+    renderTabs();
+    renderCounter();
+    renderContent();
+  }
 }
 
 function setDate(){
@@ -1447,7 +1464,8 @@ function renderSchedWeek() {
         html += '<tr>';
         html += '<td class="sch-td-name">' +
           '<span class="sch-del-btn" onclick="schedConfirmDelete(event,\'' + sid + '\')" title="Remove">×</span>' +
-          staff.name + '</td>';
+          '<span onclick="schedEditName(event,\'' + sid + '\')" title="Click to edit name" style="cursor:pointer">' + staff.name + ' <span style="opacity:.3;font-size:10px">✎</span></span>' +
+          '</td>';
         html += '<td class="sch-td-role" onclick="schedEditRole(event,\'' + sid + '\')" title="Click to edit" style="cursor:pointer">' +
           staff.designation + ' <span style="opacity:.3;font-size:10px">✎</span></td>';
 
@@ -1508,7 +1526,35 @@ function renderSchedWeek() {
     '</td></tr>';
   }
 
-  html += '</tbody></table>';
+  // Week summary row — total hours per day + grand total
+  html += '<tfoot><tr class="sch-summary-row"><td class="sum-label">Total hours</td><td></td>';
+  for (var sumDi = 0; sumDi < days.length; sumDi++) {
+    var sumDs = formatDate(days[sumDi]);
+    var dayTotal = 0;
+    schedStaff.forEach(function(s) {
+      var rr = schedRoster[schedRosterKey(s.id, sumDs)];
+      if (!rr || rr.status === 'working') {
+        var ts = rr ? formatTime(rr.shift_start) : '';
+        var te = rr ? formatTime(rr.shift_end) : '';
+        if (ts && te) dayTotal += calcHours(ts, te, rr ? formatTime(rr.shift_start2) : '', rr ? formatTime(rr.shift_end2) : '');
+      }
+    });
+    html += '<td>' + (dayTotal > 0 ? dayTotal + 'h' : '—') + '</td>';
+  }
+  // Grand total
+  var grandTotal = 0;
+  schedStaff.forEach(function(s) {
+    for (var gi = 0; gi < days.length; gi++) {
+      var rr = schedRoster[schedRosterKey(s.id, formatDate(days[gi]))];
+      if (!rr || rr.status === 'working') {
+        var ts = rr ? formatTime(rr.shift_start) : '';
+        var te = rr ? formatTime(rr.shift_end) : '';
+        if (ts && te) grandTotal += calcHours(ts, te, rr ? formatTime(rr.shift_start2) : '', rr ? formatTime(rr.shift_end2) : '');
+      }
+    }
+  });
+  html += '<td>' + (grandTotal > 0 ? grandTotal + 'h' : '—') + '</td><td>—</td><td></td></tr></tfoot>';
+  html += '</table>';
   document.getElementById('sch-grid-wrap').innerHTML = html;
 }
 
@@ -1693,6 +1739,36 @@ async function schedMoveStation(staffId, mpid) {
 
 
 // ── Edit role inline ──
+function schedEditName(event, staffId) {
+  event.stopPropagation();
+  var staff = schedStaff.find(function(s){ return s.id === staffId; });
+  if (!staff) return;
+  var td = event.currentTarget.parentElement;
+  var delBtn = td.querySelector('.sch-del-btn').outerHTML;
+  var inp = document.createElement('input');
+  inp.type = 'text';
+  inp.className = 'sch-role-input';
+  inp.value = staff.name;
+  inp.style.cssText = 'width:130px;padding:3px 6px;border:1px solid var(--vino);border-radius:3px;font-size:13px;font-family:var(--font-serif);background:var(--cream)';
+  inp.addEventListener('blur', function(){ schedSaveName(staffId, inp); });
+  inp.addEventListener('keydown', function(e){ if(e.key==='Enter') inp.blur(); if(e.key==='Escape') renderSchedWeek(); });
+  td.innerHTML = delBtn;
+  td.appendChild(inp);
+  inp.focus();
+  inp.select();
+}
+async function schedSaveName(staffId, input) {
+  var newName = input.value.trim();
+  var staff = schedStaff.find(function(s){ return s.id === staffId; });
+  if (!staff || !newName || newName === staff.name) { renderSchedWeek(); return; }
+  staff.name = newName;
+  renderSchedWeek();
+  if (!DEV_READ_ONLY) {
+    var res = await sb.from('staff').update({ name: newName }).eq('id', staffId);
+    if (res.error) { console.error('Name update error:', res.error); loadSchedData().then(renderSchedWeek); }
+  }
+}
+
 function schedEditRole(event, staffId) {
   event.stopPropagation();
   var staff = schedStaff.find(function(s){ return s.id === staffId; });
