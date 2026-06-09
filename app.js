@@ -2,7 +2,7 @@
 const SUPABASE_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const DEV_READ_ONLY = true;
+const DEV_READ_ONLY = false;
 
 const PASS_KEY = 'pass';
 const REPORT_KEY = 'reports';
