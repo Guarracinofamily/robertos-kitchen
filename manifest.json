@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "Roberto's Kitchen",
   "short_name": "R's Kitchen",
-  "description": "Roberto's DIFC — Kitchen Prep Management",
-  "start_url": "/",
+  "description": "Roberto's DIFC - Kitchen Prep Management",
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#e1d3c2",
   "theme_color": "#410207",
@@ -13,3 +13,4 @@
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }
+

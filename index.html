@@ -11,6 +11,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
+
 @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=DM+Sans:wght@300;400;500&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -214,6 +215,136 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 /* ── SYNC INDICATOR ── */
 .sync-flash{position:fixed;top:0;left:0;right:0;height:2px;background:var(--pomodoro);transform:scaleX(0);transform-origin:left;transition:transform .3s;z-index:999}
 .sync-flash.active{transform:scaleX(1)}
+
+
+
+/* Restored module shell */
+.top-left{display:flex;align-items:center;gap:12px}
+.home-btn{font-size:10px;color:var(--vino);background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:3px;padding:6px 10px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans)}
+.home-view{min-height:calc(100vh - 95px);padding:22px 18px 36px;background:var(--sabbia)}
+.home-title{font-family:var(--font-serif);font-size:38px;color:var(--vino);line-height:1}
+.home-subtitle{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--vino-light);margin:7px 0 18px}
+.home-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.home-tile{min-height:150px;border:1px solid var(--sabbia-dark);border-radius:6px;background:var(--cream);padding:16px;display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;cursor:pointer;text-align:left;color:var(--vino);font-family:var(--font-sans);transition:transform .12s,border-color .12s,background .12s}
+.home-tile:hover{transform:translateY(-1px);border-color:var(--vino)}
+.home-tile.primary{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.home-tile.secondary{background:var(--sabbia-light)}
+.home-tile.disabled{opacity:.55;cursor:not-allowed}
+.home-tile.disabled:hover{transform:none;border-color:var(--sabbia-dark)}
+.home-code{font-size:10px;letter-spacing:2px;text-transform:uppercase;border:1px solid currentColor;border-radius:3px;padding:4px 7px}
+.home-name{display:block;font-family:var(--font-serif);font-size:22px;line-height:1.1}
+.home-meta{display:block;font-size:11px;color:var(--vino-light);margin-top:4px}
+.home-tile.primary .home-meta{color:rgba(245,237,224,.75)}
+
+.ops-view,.check-view{padding:16px 18px 40px;background:var(--sabbia)}
+.ops-title{font-family:var(--font-serif);font-size:30px;color:var(--vino);line-height:1;margin-bottom:4px}
+.ops-subtitle{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--vino-light);margin-bottom:14px}
+.ops-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.ops-card{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:6px;padding:12px 14px;min-height:92px}
+.ops-card.dark{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.ops-num{font-family:var(--font-serif);font-size:38px;line-height:1;color:var(--vino)}
+.ops-card.dark .ops-num{color:var(--cream)}
+.ops-label{font-size:9px;letter-spacing:1.7px;text-transform:uppercase;color:var(--vino-light);margin-top:6px}
+.ops-card.dark .ops-label{color:rgba(245,237,224,.78)}
+.ops-two{display:grid;grid-template-columns:1.15fr .85fr;gap:12px}
+.ops-panel{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:6px;overflow:hidden;margin-bottom:12px}
+.ops-panel-head{background:var(--vino);color:var(--cream);padding:9px 14px;font-size:10px;letter-spacing:2px;text-transform:uppercase}
+.ops-panel-body{padding:12px 14px}
+.station-meter{display:grid;grid-template-columns:140px 1fr 62px;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--sabbia-dark)}
+.station-meter-name{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--vino)}
+.meter-track{height:10px;background:var(--sabbia-dark);border-radius:5px;overflow:hidden;display:flex}
+.meter-ok{background:var(--oliva)}.meter-bu{background:#c49200}.meter-sos{background:#cc0000}
+.meter-pct{font-family:var(--font-serif);font-size:18px;color:var(--vino);text-align:right}
+.critical-item{display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--sabbia-dark)}
+.critical-text{font-size:13px;color:var(--ink);font-family:var(--font-serif);line-height:1.25}
+.critical-meta{font-size:10px;color:var(--vino-light);letter-spacing:.8px;text-transform:uppercase;margin-top:2px}
+.report-filter-panel,.order-toolbar{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:6px;padding:12px 14px;margin-bottom:12px}
+.report-filter-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:end}
+.check-field{display:flex;flex-direction:column;gap:4px;flex:1;min-width:170px}
+.check-label{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--vino-light)}
+.check-input,.check-select,.check-textarea{border:1px solid var(--sabbia-dark);border-radius:3px;background:#fff;color:var(--ink);font-size:13px;padding:9px 10px;font-family:var(--font-sans)}
+.report-table,.order-table{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:6px;overflow:hidden}
+.report-row{display:grid;grid-template-columns:110px 130px 1fr 110px 120px;gap:10px;padding:10px 14px;border-bottom:1px solid var(--sabbia-dark);align-items:center}
+.report-row.head,.order-row.head{background:var(--vino);color:var(--cream);font-size:10px;letter-spacing:1.4px;text-transform:uppercase}
+.report-cell-main,.order-name{font-family:var(--font-serif);font-size:14px;color:var(--ink)}
+.order-filter-grid{display:grid;grid-template-columns:1fr 1.2fr 1fr auto auto;gap:10px;align-items:end}
+.order-row{display:grid;grid-template-columns:90px 1fr 120px 100px 96px 110px 72px;gap:10px;padding:9px 14px;border-bottom:1px solid var(--sabbia-dark);align-items:center}
+.order-meta,.recipe-meta{font-size:10px;color:var(--vino-light);letter-spacing:.8px;text-transform:uppercase;margin-top:2px}
+.order-qty{width:90px;border:1px solid var(--sabbia-dark);border-radius:3px;background:#fff;color:var(--ink);font-size:13px;padding:8px 9px;font-family:var(--font-sans)}
+.order-money{font-family:var(--font-serif);font-size:16px;color:var(--vino)}
+.order-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+.dish-actions{display:flex;gap:6px;align-items:center;flex-shrink:0;flex-wrap:wrap}
+.dish-move-btn{background:none;border:1px solid rgba(255,255,255,.3);color:rgba(255,255,255,.72);border-radius:3px;font-size:9px;letter-spacing:1px;padding:3px 10px;cursor:pointer;text-transform:uppercase;white-space:nowrap}
+.dish-move-panel{display:none;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 14px;background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark)}
+.dish-move-panel.show,.dish-move-panel.visible{display:flex}
+.dish-move-label,.dish-move-note{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--vino-light)}
+.dish-move-select{padding:6px 8px;border:1px solid var(--sabbia-dark);border-radius:3px;background:var(--cream);color:var(--ink);font-size:11px}
+.dish-move-yes{background:var(--vino);border:1px solid var(--vino);color:var(--cream);border-radius:3px;font-size:9px;font-weight:700;padding:5px 10px;cursor:pointer;text-transform:uppercase}
+.dish-move-no{background:none;border:1px solid var(--sabbia-dark);color:var(--vino-light);border-radius:3px;font-size:9px;padding:5px 10px;cursor:pointer;text-transform:uppercase}
+
+.check-toolbar{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:4px;padding:12px 14px;display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.check-reset{margin-left:auto;border:1px solid var(--sabbia-dark);background:none;color:var(--vino);border-radius:3px;font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:9px 12px;cursor:pointer}
+.check-dish-block{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:4px;margin-bottom:8px;overflow:hidden}
+.check-dish-label{font-size:10px;letter-spacing:2.5px;text-transform:uppercase;color:var(--cream);padding:8px 14px;background:var(--vino);display:flex;align-items:center;justify-content:space-between;gap:8px;font-family:var(--font-sans)}
+.check-dish-head{background:var(--vino);color:var(--cream);padding:8px 14px}
+.check-dish-title{font-size:10px;letter-spacing:2.5px;text-transform:uppercase}
+.check-dish-meta{font-size:10px;color:rgba(255,255,255,.65);margin-top:2px}
+.check-prep-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-bottom:1px solid var(--sabbia-dark);background:var(--cream)}
+.check-prep-row:last-child{border-bottom:none}
+.check-prep-main{flex:1;min-width:0;padding-right:8px}
+.check-prep-name{font-size:14px;color:var(--ink);line-height:1.3;font-family:var(--font-serif)}
+.check-prep-note{font-size:12px;color:var(--vino-light);font-style:italic;margin-top:4px;font-family:var(--font-serif)}
+.check-command-btns{display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.check-item-row{padding:10px 14px;border-bottom:1px solid var(--sabbia-dark);background:var(--cream)}
+.check-item-top{display:flex;align-items:flex-start;gap:8px}
+.check-badge{font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;border-radius:3px;padding:4px 8px;color:#fff;flex-shrink:0}
+.check-badge.ok{background:var(--oliva)}.check-badge.review{background:#c49200}.check-badge.discard{background:#cc0000}.check-badge.none{background:var(--sabbia-dark);color:var(--vino)}
+.check-item-main,.check-card-main{flex:1;min-width:0}
+.check-item-name,.check-card-title{font-size:14px;color:var(--ink);font-family:var(--font-serif);line-height:1.25}
+.check-card-meta{font-size:10px;color:var(--vino-light);letter-spacing:.8px;text-transform:uppercase;margin-top:3px}
+.check-card-note{font-size:12px;color:var(--ink);margin-top:6px;line-height:1.35}
+.check-command-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.check-command,.check-note-btn,.check-note-save,.check-note-cancel{height:32px;border-radius:3px;font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:0 10px;cursor:pointer;white-space:nowrap}
+.check-command{min-width:58px;border:1.5px solid var(--sabbia-dark);background:var(--sabbia-light);color:var(--vino);font-weight:700}
+.check-command.ok.active{background:var(--oliva);border-color:#2e3218;color:#fff}.check-command.review.active{background:#c49200;border-color:#8a6800;color:#fff}.check-command.discard.active{background:#cc0000;border-color:#990000;color:#fff}
+.check-note-btn{border:1px solid var(--sabbia-dark);background:none;color:var(--vino)}
+.check-note-panel{display:none;align-items:flex-start;gap:8px;padding:8px 14px;background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark)}
+.check-note-panel.visible{display:flex}
+.check-note-input{flex:1;min-height:58px;border:1px solid var(--sabbia-dark);border-radius:3px;background:var(--cream);color:var(--ink);font-size:13px;padding:8px 10px;font-family:var(--font-serif);resize:vertical}
+.check-note-save{background:var(--vino);border:1px solid var(--vino);color:var(--cream)}
+.check-note-cancel{background:none;border:1px solid var(--sabbia-dark);color:var(--vino-light)}
+.check-note-editor{display:none;margin-top:8px}.check-note-editor.open{display:block}
+.check-note-editor textarea{width:100%;min-height:60px}
+.check-remove{height:28px;padding:0 10px;border:1px solid var(--sabbia-dark);border-radius:3px;background:none;color:var(--vino-light);font-size:10px;letter-spacing:.8px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans);transition:all .15s}
+.check-remove:hover{background:#cc0000;border-color:#cc0000;color:#fff}
+.station-checks{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:4px;margin-bottom:12px;overflow:hidden}
+.station-checks-head{background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark);padding:9px 14px;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--vino)}
+.station-check-item{display:flex;gap:8px;align-items:flex-start;padding:9px 14px;border-bottom:1px solid var(--sabbia-dark)}
+
+.recipe-layout{display:grid;grid-template-columns:minmax(320px,.9fr) minmax(0,1.1fr);gap:12px;align-items:start}
+.recipe-list,.recipe-detail{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:6px;overflow:hidden}
+.recipe-row{width:100%;border:0;border-bottom:1px solid var(--sabbia-dark);background:var(--cream);padding:11px 14px;text-align:left;cursor:pointer;color:var(--ink);font-family:var(--font-sans)}
+.recipe-row.active,.recipe-row:hover{background:var(--sabbia-light)}
+.recipe-title{font-family:var(--font-serif);font-size:15px;line-height:1.18;color:var(--vino)}
+.recipe-quality{display:inline-flex;margin-top:7px;border-radius:3px;padding:3px 7px;font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;background:var(--sabbia-dark);color:var(--vino)}
+.recipe-quality.good{background:var(--oliva);color:#fff}.recipe-quality.ingredients_only{background:#c49200;color:#fff}.recipe-quality.menu_text{background:var(--vino);color:var(--cream)}
+.recipe-detail{min-height:420px}.recipe-detail-head{background:var(--vino);color:var(--cream);padding:12px 14px}
+.recipe-detail-title{font-family:var(--font-serif);font-size:24px;line-height:1.1}
+.recipe-detail-meta{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:rgba(245,237,224,.78);margin-top:5px}
+.recipe-detail-body{padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.recipe-section-title{font-size:10px;letter-spacing:1.7px;text-transform:uppercase;color:var(--vino);margin-bottom:8px;font-weight:700}
+.recipe-detail ul,.recipe-detail ol{margin:0;padding-left:18px}
+.recipe-detail li{font-size:13px;line-height:1.45;margin-bottom:5px;color:var(--ink)}
+.recipe-source{border-top:1px solid var(--sabbia-dark);padding:10px 14px;font-size:10px;color:var(--vino-light);letter-spacing:.8px;text-transform:uppercase}
+.recipe-empty{font-size:13px;color:var(--vino-light);font-style:italic;padding:14px;text-align:center;font-family:var(--font-serif)}
+
+@media(max-width:700px){
+  .home-grid{grid-template-columns:1fr}.home-tile{min-height:125px}.home-title{font-size:30px}
+  .ops-grid,.ops-two,.report-filter-grid,.order-filter-grid,.recipe-layout,.recipe-detail-body{grid-template-columns:1fr}
+  .order-row,.report-row{grid-template-columns:1fr;gap:4px}
+}
+
 </style>
 </head>
 <body>
@@ -228,16 +359,33 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 <div class="app-header">
   <div class="top-row">
-    <img src="https://zrpglswalgjbtghudmhu.supabase.co/storage/v1/object/public/assets/logo-dark.png"
-         onerror="this.style.display='none';document.getElementById('logo-text').style.display='block'"
-         style="height:32px;width:auto" alt="Roberto's"/>
-    <span id="logo-text" style="display:none;font-family:Georgia,serif;font-size:18px;color:var(--vino);letter-spacing:3px">ROBERTO'S</span>
+    <div class="top-left">
+      <button class="home-btn" onclick="openHome()">Home</button>
+      <img src="https://zrpglswalgjbtghudmhu.supabase.co/storage/v1/object/public/assets/logo-dark.png"
+           onerror="this.style.display='none';document.getElementById('logo-text').style.display='block'"
+           style="height:32px;width:auto" alt="Roberto's"/>
+      <span id="logo-text" style="display:none;font-family:Georgia,serif;font-size:18px;color:var(--vino);letter-spacing:3px">ROBERTO'S</span>
+    </div>
     <div class="header-right">
       <span class="hdr-date" id="hdr-date"></span>
       <span class="hdr-sub">Kitchen Prep <span class="realtime-dot" id="realtime-dot" title="Realtime sync status"></span></span>
     </div>
   </div>
   <div class="section-tabs" id="section-tabs"></div>
+</div>
+
+<div id="home-view" class="home-view">
+  <div class="home-title">Kitchen App</div>
+  <div class="home-subtitle">Choose your work area</div>
+  <div class="home-grid">
+    <button class="home-tile primary" onclick="openPrep()"><span class="home-code">PREP</span><span><span class="home-name">Prep List</span><span class="home-meta">Stations, status, dish moves</span></span></button>
+    <button class="home-tile secondary" onclick="openChecklist()"><span class="home-code">CHK</span><span><span class="home-name">Chef Checklist</span><span class="home-meta">OK, To check, Discard</span></span></button>
+    <button class="home-tile secondary" onclick="openDashboard()"><span class="home-code">DASH</span><span><span class="home-name">Dashboard</span><span class="home-meta">Live readiness and critical items</span></span></button>
+    <button class="home-tile secondary" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
+    <button class="home-tile secondary" onclick="openOrderInventory()"><span class="home-code">ORD</span><span><span class="home-name">Order Inventory</span><span class="home-meta">Quantities, prices, totals</span></span></button>
+    <button class="home-tile secondary" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Search dishes, ingredients, method</span></span></button>
+    <button class="home-tile disabled" type="button"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Coming next</span></span></button>
+  </div>
 </div>
 
 <div id="legend-bar" class="legend">
@@ -254,8 +402,9 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   </div>
 </div>
 
-<div id="report-view" style="display:none"></div>
-<div id="pass-view" class="pass-view" style="display:none"></div>
+<div id="report-view" class="report-view" style="display:none">
+  <div class="report-header">
+    <div class="report-title">Service Reports</div>
     <div class="report-subtitle">SOS · BU · OK history by date</div>
   </div>
   <div class="report-controls">
@@ -267,13 +416,17 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   </div>
   <div id="report-content"><div class="report-no-data">Select a date to view the service report</div></div>
 </div>
+<div id="pass-view" class="pass-view" style="display:none"></div>
+<div id="dashboard-view" class="ops-view" style="display:none"></div>
+<div id="reports-view" class="ops-view" style="display:none"></div>
+<div id="order-view" class="ops-view" style="display:none"></div>
+<div id="recipes-view" class="ops-view" style="display:none"></div>
+<div id="check-view" class="check-view" style="display:none"></div>
 <div class="content" id="content"></div>
 
 <div id="add-section-wrap" class="add-section">
   <div class="add-dish-block">
-    <div class="add-dish-header">
-      <span>+ Add extra prep for today</span>
-    </div>
+    <div class="add-dish-header"><span>+ Add extra prep for today</span></div>
     <div class="add-form">
       <div class="add-row">
         <div class="add-field"><div class="add-label">Dish / prep name</div><input class="add-input" id="add-dish-name" type="text" placeholder="e.g. Burro nocciola extra"/></div>
@@ -297,440 +450,9 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script>
-const SUPABASE_URL = 'https://zrpglswalgjbtghudmhu.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpycGdsc3dhbGdqYnRnaHVkbWh1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5MTIyMjQsImV4cCI6MjA5NjQ4ODIyNH0.pfABN-so4xINK7nHxXUlVeTO4g0h0l6ILHVwpoKrbds';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+<script src="order-items.js"></script>
+<script src="recipes.js"></script>
+<script src="app.js"></script>
 
-const PASS_KEY = 'pass';
-const REPORT_KEY = 'reports';
-const TODAY = new Date().toISOString().split('T')[0];
-
-let STATIONS = [];
-let state = {};
-let activeStation = PASS_KEY;
-let activeFilter = null;
-let undoStack = null;
-let undoTimer = null;
-let realtimeChannel = null;
-let saving = false;
-
-// ── INIT ──
-async function init() {
-  setDate();
-  await loadPrepList();
-  await loadTodayStatus();
-  subscribeRealtime();
-  populateSelects();
-  renderTabs();
-  switchStation(PASS_KEY);
-  document.getElementById('loading').classList.add('hidden');
-  document.getElementById('report-date').value = TODAY;
-}
-
-// ── LOAD PREP LIST FROM SUPABASE ──
-async function loadPrepList() {
-  const { data: stationsData } = await sb.from('stations').select('*').eq('active', true).order('sort_order');
-  const { data: subsectionsData } = await sb.from('subsections').select('*').eq('active', true).order('sort_order');
-  const { data: dishesData } = await sb.from('dishes').select('*').eq('active', true).order('sort_order');
-  const { data: componentsData } = await sb.from('dish_components').select('*').eq('active', true).order('sort_order');
-
-  STATIONS = stationsData.map(st => ({
-    key: st.key,
-    label: st.label,
-    subsections: subsectionsData
-      .filter(ss => ss.station_key === st.key)
-      .map(ss => ({
-        key: ss.key,
-        label: ss.label,
-        dishes: dishesData
-          .filter(d => d.station_key === st.key && d.subsection_key === ss.key)
-          .map(d => ({
-            id: d.id,
-            name: d.name,
-            extra: false,
-            items: componentsData.filter(c => c.dish_id === d.id).map(c => c.name)
-          }))
-      }))
-  }));
-}
-
-// ── LOAD TODAY'S STATUS ──
-async function loadTodayStatus() {
-  const { data } = await sb.from('prep_status').select('*').eq('service_date', TODAY);
-  if (data) {
-    data.forEach(row => {
-      const id = mkId(row.station_key, row.subsection_key, row.dish_name, row.component_name);
-      state[id] = row.status;
-    });
-  }
-}
-
-// ── REALTIME SYNC ──
-function subscribeRealtime() {
-  realtimeChannel = sb.channel('prep_status_changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'prep_status', filter: `service_date=eq.${TODAY}` },
-      payload => {
-        const r = payload.new || payload.old;
-        if (!r) return;
-        const id = mkId(r.station_key, r.subsection_key, r.dish_name, r.component_name);
-        const newStatus = payload.eventType === 'DELETE' ? 'none' : r.status;
-        if (state[id] !== newStatus) {
-          state[id] = newStatus;
-          flashSync();
-          if (activeStation === PASS_KEY) renderPassView();
-          else { renderCounter(); updateRowUI(id, newStatus); applyFilter(); renderTabs(); }
-        }
-      })
-    .subscribe(status => {
-      document.getElementById('realtime-dot').classList.toggle('live', status === 'SUBSCRIBED');
-    });
-}
-
-function flashSync() {
-  const el = document.getElementById('sync-flash');
-  el.classList.add('active');
-  setTimeout(() => el.classList.remove('active'), 500);
-}
-
-// ── SAVE STATUS TO SUPABASE ──
-async function saveStatus(stKey, ssKey, dishName, component, newStatus, prevStatus) {
-  const row = { service_date: TODAY, station_key: stKey, subsection_key: ssKey, dish_name: dishName, component_name: component, status: newStatus, updated_at: new Date().toISOString() };
-  await sb.from('prep_status').upsert(row, { onConflict: 'service_date,station_key,subsection_key,dish_name,component_name' });
-  await sb.from('prep_status_log').insert({ service_date: TODAY, station_key: stKey, subsection_key: ssKey, dish_name: dishName, component_name: component, status: newStatus, previous_status: prevStatus });
-}
-
-function mkId(stk, ssk, dn, item) { return `${stk}||${ssk}||${dn}||${item}`; }
-function parseId(id) { const [stk,ssk,dn,...rest] = id.split('||'); return {stk,ssk,dn,item:rest.join('||')}; }
-
-// ── COUNTS ──
-function allCounts() {
-  const c={sos:0,bu:0,ok:0,none:0,total:0};
-  STATIONS.forEach(st=>st.subsections.forEach(ss=>ss.dishes.forEach(d=>d.items.forEach(i=>{const s=state[mkId(st.key,ss.key,d.name,i)]||'none';c[s]++;c.total++;}))));
-  return c;
-}
-function stationCounts(st) {
-  const c={sos:0,bu:0,ok:0,none:0};
-  st.subsections.forEach(ss=>ss.dishes.forEach(d=>d.items.forEach(i=>{c[state[mkId(st.key,ss.key,d.name,i)]||'none']++;})));
-  return c;
-}
-
-// ── TABS ──
-function renderTabs() {
-  const tabs=[{key:PASS_KEY,label:'The Pass',pass:true},...STATIONS];
-  document.getElementById('section-tabs').innerHTML=tabs.map(t=>{
-    if(t.pass){const c=allCounts();const sb=c.sos>0?`<span class="stab-badge tb-sos">${c.sos}</span>`:'';return `<button class="stab pass-tab${activeStation===PASS_KEY?' active':''}" onclick="switchStation('${PASS_KEY}')">${t.label}${sb}</button>`;}
-    
-    const c=stationCounts(t);
-    const sb2=c.sos>0?`<span class="stab-badge tb-sos">${c.sos}</span>`:'';
-    const bb=c.bu>0?`<span class="stab-badge tb-bu">${c.bu}</span>`:'';
-    return `<button class="stab${activeStation===t.key?' active':''}" onclick="switchStation('${t.key}')">${t.label}${sb2}${bb}</button>`;
-  }).join('');
-}
-
-// ── PASS VIEW ──
-function renderPassView() {
-  const c=allCounts();
-  const pct=(v)=>c.total?Math.round(v/c.total*100):0;
-  const stationRows=STATIONS.map(st=>{
-    const sc=stationCounts(st);
-    const combined=[];
-    st.subsections.forEach(ss=>ss.dishes.forEach(d=>d.items.forEach(item=>{
-      const s=state[mkId(st.key,ss.key,d.name,item)]||'none';
-      if(s==='sos'||s==='bu')combined.push({item,dish:d.name,type:s});
-    })));
-    const badges=`${sc.sos>0?`<span class="pass-badge pb-sos">${sc.sos} SOS</span>`:''}${sc.bu>0?`<span class="pass-badge pb-bu">${sc.bu} BU</span>`:''}${sc.ok>0?`<span class="pass-badge pb-ok">${sc.ok} OK</span>`:''}${combined.length===0&&sc.none===0?`<span class="pb-all-ok">All clear</span>`:''}`;
-    const rows=combined.length>0?combined.map(x=>`<div class="pass-sos-item"><div class="pass-sos-dot dot-${x.type}"></div><span class="pass-sos-text">${x.item}</span><span class="pass-sos-dish">${x.dish}</span></div>`).join(''):`<div class="pass-empty">${sc.none>0?`${sc.none} items pending check`:'All items accounted for'}</div>`;
-    return `<div class="pass-station-card"><div class="pass-station-header"><span class="pass-station-name">${st.label}</span><div class="pass-station-badges">${badges}</div></div><div class="pass-station-body"><div class="pass-sos-list">${rows}</div></div></div>`;
-  }).join('');
-  document.getElementById('pass-view').innerHTML=`
-    <div class="pass-hero">
-      <div class="pass-hero-card c-sos"><span class="pass-hero-num">${c.sos}</span><span class="pass-hero-label">SOS</span></div>
-      <div class="pass-hero-card c-bu"><span class="pass-hero-num">${c.bu}</span><span class="pass-hero-label">Backup</span></div>
-      <div class="pass-hero-card c-ok"><span class="pass-hero-num">${c.ok}</span><span class="pass-hero-label">OK</span></div>
-      <div class="pass-hero-card c-pending"><span class="pass-hero-num">${c.none}</span><span class="pass-hero-label">Pending</span></div>
-    </div>
-    <div class="pass-progress-section">
-      <div class="pass-progress-label"><span>Overall kitchen readiness</span><span>${c.total>0?Math.round(c.ok/c.total*100):0}% ready</span></div>
-      <div class="pass-progress-track"><div class="pass-progress-ok" style="width:${pct(c.ok)}%"></div><div class="pass-progress-bu" style="width:${pct(c.bu)}%"></div><div class="pass-progress-sos" style="width:${pct(c.sos)}%"></div></div>
-    </div>
-    <div style="height:18px"></div>
-    <div class="pass-section-title">Station by station</div>
-    <div class="pass-station-grid">${stationRows}</div>`;
-}
-
-// ── REPORT VIEW ──
-async function loadReport() {
-  const date = document.getElementById('report-date').value;
-  if (!date) return;
-  const el = document.getElementById('report-content');
-  el.innerHTML = '<div class="report-no-data">Loading...</div>';
-  const { data: logs } = await sb.from('prep_status_log').select('*').eq('service_date', date).order('logged_at', {ascending: false});
-  if (!logs || logs.length === 0) { el.innerHTML = `<div class="report-no-data">No data recorded for ${date}</div>`; return; }
-
-  // Get final status per item (latest log entry wins)
-  const finalStatus = {};
-  [...logs].reverse().forEach(l => {
-    const key = `${l.station_key}||${l.subsection_key}||${l.dish_name}||${l.component_name}`;
-    finalStatus[key] = l.status;
-  });
-
-  const counts = {sos:0,bu:0,ok:0,none:0};
-  Object.values(finalStatus).forEach(s=>counts[s]++);
-  const total = Object.values(counts).reduce((a,b)=>a+b,0);
-
-  // Per station breakdown
-  const byStation = {};
-  Object.entries(finalStatus).forEach(([key, status]) => {
-    const [stk,ssk,dn,comp] = key.split('||');
-    if (!byStation[stk]) byStation[stk] = {};
-    if (!byStation[stk][dn]) byStation[stk][dn] = {sos:0,bu:0,ok:0,none:0,items:[]};
-    byStation[stk][dn][status]++;
-    if (status === 'sos' || status === 'bu') byStation[stk][dn].items.push({comp, status});
-  });
-
-  const stationBlocks = STATIONS.map(st => {
-    if (!byStation[st.key]) return '';
-    const dishes = byStation[st.key];
-    const stCounts = {sos:0,bu:0,ok:0};
-    Object.values(dishes).forEach(d=>{stCounts.sos+=d.sos;stCounts.bu+=d.bu;stCounts.ok+=d.ok;});
-    const dishRows = Object.entries(dishes).map(([dname, dc]) => {
-      const badges = `${dc.sos>0?`<span class="rsc-badge rsc-sos">${dc.sos} SOS</span>`:''}${dc.bu>0?`<span class="rsc-badge rsc-bu">${dc.bu} BU</span>`:''}${dc.ok>0?`<span class="rsc-badge rsc-ok">${dc.ok} OK</span>`:''}`;
-      return `<div class="report-dish-row"><span class="report-dish-name">${dname}</span><div class="report-dish-badges">${badges}</div></div>`;
-    }).join('');
-    return `<div class="report-station-block"><div class="report-station-header"><span class="report-station-name">${st.label}</span><div class="report-station-counts">${stCounts.sos>0?`<span class="rsc-badge rsc-sos">${stCounts.sos} SOS</span>`:''}${stCounts.bu>0?`<span class="rsc-badge rsc-bu">${stCounts.bu} BU</span>`:''}${stCounts.ok>0?`<span class="rsc-badge rsc-ok">${stCounts.ok} OK</span>`:''}
-    </div></div>${dishRows}</div>`;
-  }).join('');
-
-  el.innerHTML = `
-    <div class="report-summary">
-      <div class="report-card c-sos"><span class="report-card-num">${counts.sos}</span><span class="report-card-label">SOS</span></div>
-      <div class="report-card c-bu"><span class="report-card-num">${counts.bu}</span><span class="report-card-label">Backup</span></div>
-      <div class="report-card c-ok"><span class="report-card-num">${counts.ok}</span><span class="report-card-label">OK</span></div>
-      <div class="report-card c-total"><span class="report-card-num">${total}</span><span class="report-card-label">Total</span></div>
-    </div>
-    ${stationBlocks || '<div class="report-no-data">No station data found</div>'}`;
-}
-
-// ── COUNTER ──
-function renderCounter() {
-  const st=STATIONS.find(s=>s.key===activeStation);
-  if(!st)return;
-  const c=stationCounts(st);
-  const total=c.sos+c.bu+c.ok+c.none;
-  document.getElementById('sec-counter').innerHTML=[
-    {cls:'c-sos',key:'sos',num:c.sos,label:'SOS'},
-    {cls:'c-bu',key:'bu',num:c.bu,label:'Backup'},
-    {cls:'c-ok',key:'ok',num:c.ok,label:'OK'},
-    {cls:'c-pending',key:'none',num:c.none,label:'Pending'},
-  ].map(card=>`<div class="sc-card ${card.cls}${activeFilter===card.key?' filter-active':''}" onclick="toggleFilter('${card.key}')"><span class="sc-num">${card.num}</span><span class="sc-label">${card.label}</span></div>`).join('');
-  document.getElementById('foot-label').textContent=`${st.label} · ${total} items total`;
-  const fb=document.getElementById('filter-bar');
-  if(activeFilter){fb.classList.add('visible');document.getElementById('filter-label-text').textContent={sos:'SOS only',bu:'Backup only',ok:'OK only',none:'Pending only'}[activeFilter];}
-  else fb.classList.remove('visible');
-}
-
-function applyFilter() {
-  const st=STATIONS.find(s=>s.key===activeStation);
-  if(!st)return;
-  st.subsections.forEach(ss=>ss.dishes.forEach(dish=>{
-    let vis=false;
-    dish.items.forEach(item=>{
-      const id=mkId(st.key,ss.key,dish.name,item);
-      const show=!activeFilter||(state[id]||'none')===activeFilter;
-      const row=document.getElementById('pr-'+encodeURIComponent(id));
-      if(row)row.classList.toggle('hidden-row',!show);
-      if(show)vis=true;
-    });
-    const db=document.getElementById('db-'+st.key+'-'+ss.key+'-'+dish.name.replace(/[^a-z0-9]/gi,'_'));
-    if(db)db.classList.toggle('hidden-block',!vis);
-  }));
-}
-
-function toggleFilter(k){activeFilter=activeFilter===k?null:k;renderCounter();applyFilter();}
-function clearFilter(){activeFilter=null;renderCounter();applyFilter();}
-
-// ── CONTENT ──
-function renderContent() {
-  const st=STATIONS.find(s=>s.key===activeStation);
-  if(!st){document.getElementById('content').innerHTML='';return;}
-  document.getElementById('content').innerHTML=st.subsections.map(ss=>`
-    <div class="subsec-title">${ss.label}<div class="subsec-line"></div></div>
-    ${ss.dishes.map(dish=>{
-      const dk='db-'+st.key+'-'+ss.key+'-'+dish.name.replace(/[^a-z0-9]/gi,'_');
-      const eS=st.key.replace(/'/g,"\\'"),eSS=ss.key.replace(/'/g,"\\'"),eDN=dish.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-      const did='dc-'+st.key+'-'+ss.key+'-'+dish.name.replace(/[^a-z0-9]/gi,'_');
-      return `<div class="dish-block" id="${dk}">
-        <div class="dish-label">
-          <span class="dish-name-text">${dish.name}${dish.extra?'<span class="dish-extra-tag"> · EXTRA</span>':''}</span>
-          <button class="dish-delete-btn" id="${did}-btn" onclick="showDishConfirm('${did}','${eS}','${eSS}','${eDN}')">Remove dish</button>
-          <div class="dish-confirm-row" id="${did}-confirm">
-            <span class="dish-confirm-label">Remove entire dish?</span>
-            <button class="dish-confirm-yes" onclick="deleteDish('${eS}','${eSS}','${eDN}','${did}')">Yes, remove</button>
-            <button class="dish-confirm-no" onclick="cancelDishConfirm('${did}')">Cancel</button>
-          </div>
-        </div>
-        ${dish.items.map((item,idx)=>{
-          const id=mkId(st.key,ss.key,dish.name,item);
-          const s=state[id]||'none';
-          const esc=id.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-          const bc=s==='none'?'sbtn-none':'sbtn-colored';
-          const ikey='ic-'+encodeURIComponent(id);
-          return `<div class="prep-row status-${s}" id="pr-${encodeURIComponent(id)}">
-            <span class="prep-name">${item}</span>
-            <div class="row-right">
-              <div class="item-confirm-inline" id="${ikey}">
-                <span class="ic-label">Remove?</span>
-                <button class="ic-yes" onclick="deleteItem('${esc}','${eS}','${eSS}','${eDN}',${idx},'${ikey}')">Yes</button>
-                <button class="ic-no" onclick="cancelItemConfirm('${ikey}','${encodeURIComponent(id)}')">No</button>
-              </div>
-              <div class="status-btns" id="sb-${encodeURIComponent(id)}">
-                <button class="sbtn ${bc}${s==='sos'?' active-sos':''}" onclick="setS('${esc}','sos')">SOS</button>
-                <button class="sbtn ${bc}${s==='bu'?' active-bu':''}" onclick="setS('${esc}','bu')">BU</button>
-                <button class="sbtn ${bc}${s==='ok'?' active-ok':''}" onclick="setS('${esc}','ok')">OK</button>
-              </div>
-              <button class="item-del-btn" id="idb-${encodeURIComponent(id)}" onclick="showItemConfirm('${ikey}','${encodeURIComponent(id)}')" aria-label="Remove item">✕</button>
-            </div>
-          </div>`;
-        }).join('')}
-      </div>`;
-    }).join('')}
-  `).join('');
-  applyFilter();
-}
-
-// ── UPDATE SINGLE ROW WITHOUT FULL RE-RENDER (for realtime) ──
-function updateRowUI(id, s) {
-  const row = document.getElementById('pr-'+encodeURIComponent(id));
-  if (!row) return;
-  row.className='prep-row status-'+s;
-  const bc=s==='none'?'sbtn-none':'sbtn-colored';
-  const btns=row.querySelectorAll('.sbtn');
-  if(btns[0]){btns[0].className=`sbtn ${bc}`+(s==='sos'?' active-sos':'');btns[1].className=`sbtn ${bc}`+(s==='bu'?' active-bu':'');btns[2].className=`sbtn ${bc}`+(s==='ok'?' active-ok':'');}
-}
-
-// ── SET STATUS ──
-async function setS(id, val) {
-  const prev = state[id]||'none';
-  const newVal = prev===val?'none':val;
-  state[id]=newVal;
-  updateRowUI(id, newVal);
-  renderTabs();renderCounter();applyFilter();
-  const {stk,ssk,dn,item}=parseId(id);
-  await saveStatus(stk,ssk,dn,item,newVal,prev);
-}
-
-// ── DELETE DISH ──
-function showDishConfirm(did,stKey,ssKey,dishName){document.getElementById(did+'-btn').style.display='none';document.getElementById(did+'-confirm').classList.add('visible');}
-function cancelDishConfirm(did){document.getElementById(did+'-btn').style.display='';document.getElementById(did+'-confirm').classList.remove('visible');}
-function deleteDish(stKey,ssKey,dishName,did){
-  const st=STATIONS.find(s=>s.key===stKey);const ss=st.subsections.find(s=>s.key===ssKey);
-  const di=ss.dishes.findIndex(d=>d.name===dishName);if(di===-1)return;
-  const removed=ss.dishes.splice(di,1)[0];
-  const savedState={};removed.items.forEach(item=>{const id=mkId(stKey,ssKey,dishName,item);savedState[item]=state[id]||'none';delete state[id];});
-  undoStack={type:'dish',stKey,ssKey,dish:removed,idx:di,savedState};
-  showUndo(`"${dishName}" removed`);renderTabs();renderCounter();renderContent();
-}
-
-// ── DELETE ITEM ──
-function showItemConfirm(ikey,encId){document.getElementById(ikey).classList.add('visible');document.getElementById('sb-'+encId).style.display='none';document.getElementById('idb-'+encId).style.display='none';}
-function cancelItemConfirm(ikey,encId){document.getElementById(ikey).classList.remove('visible');document.getElementById('sb-'+encId).style.display='';document.getElementById('idb-'+encId).style.display='';}
-function deleteItem(id,stKey,ssKey,dishName,idx,ikey){
-  const st=STATIONS.find(s=>s.key===stKey);const ss=st.subsections.find(s=>s.key===ssKey);const dish=ss.dishes.find(d=>d.name===dishName);
-  if(!dish)return;const itemName=dish.items[idx];const savedStatus=state[id]||'none';delete state[id];dish.items.splice(idx,1);
-  if(dish.items.length===0){const di=ss.dishes.findIndex(d=>d.name===dishName);const rd=ss.dishes.splice(di,1)[0];undoStack={type:'dish',stKey,ssKey,dish:rd,idx:di,savedState:{}};}
-  else undoStack={type:'item',stKey,ssKey,dishName,itemName,idx,savedStatus};
-  showUndo(`"${itemName}" removed`);renderTabs();renderCounter();renderContent();
-}
-
-// ── UNDO ──
-function showUndo(msg){
-  if(undoTimer)clearTimeout(undoTimer);
-  document.getElementById('undo-msg').textContent=msg;
-  document.getElementById('undo-toast').classList.add('visible');
-  undoTimer=setTimeout(()=>{document.getElementById('undo-toast').classList.remove('visible');undoStack=null;},6000);
-}
-function undoDelete(){
-  if(!undoStack)return;clearTimeout(undoTimer);document.getElementById('undo-toast').classList.remove('visible');
-  const u=undoStack;undoStack=null;
-  const st=STATIONS.find(s=>s.key===u.stKey);const ss=st.subsections.find(s=>s.key===u.ssKey);
-  if(u.type==='dish'){ss.dishes.splice(u.idx,0,u.dish);u.dish.items.forEach(item=>{state[mkId(u.stKey,u.ssKey,u.dish.name,item)]=u.savedState[item]||'none';});}
-  else{const dish=ss.dishes.find(d=>d.name===u.dishName);if(dish){dish.items.splice(u.idx,0,u.itemName);state[mkId(u.stKey,u.ssKey,u.dishName,u.itemName)]=u.savedStatus||'none';}}
-  renderTabs();renderCounter();renderContent();
-}
-
-// ── SWITCH STATION ──
-function switchStation(key){
-  activeStation=key;activeFilter=null;
-  const isPass=key===PASS_KEY;
-  ['pass-view','report-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
-    var el=document.getElementById(id);if(el)el.style.display='none';
-  });
-  if(isPass){
-    var pv=document.getElementById('pass-view');if(pv)pv.style.display='block';
-    document.getElementById('foot-label').textContent='The Pass · All stations';
-    renderPassView();
-  } else {
-    var show={'content':'block','legend-bar':'flex','sec-counter-wrap':'block','add-section-wrap':'block'};
-    Object.keys(show).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=show[id];});
-    document.getElementById('foot-label').textContent='';
-    var ss=document.getElementById('add-dish-section');if(ss)ss.value=key;
-    updateSubsectionSelect();renderCounter();renderContent();
-  }
-  renderTabs();
-}
-function populateSelects(){
-  if(!STATIONS.length)return;
-  const stSel=document.getElementById('add-dish-section');
-  if(!stSel)return;
-  stSel.innerHTML=STATIONS.map(s=>`<option value="${s.key}">${s.label}</option>`).join('');
-  stSel.value=activeStation!==PASS_KEY?activeStation:STATIONS[0].key;
-  stSel.onchange=updateSubsectionSelect;updateSubsectionSelect();
-}
-function updateSubsectionSelect(){
-  const stKey=document.getElementById('add-dish-section').value;
-  const st=STATIONS.find(s=>s.key===stKey);
-  if(!st)return;
-  document.getElementById('add-dish-subsection').innerHTML=st.subsections.map(ss=>`<option value="${ss.key}">${ss.label}</option>`).join('');
-}
-async function addDish(){
-  const nameEl=document.getElementById('add-dish-name'),itemsEl=document.getElementById('add-dish-items');
-  const stKey=document.getElementById('add-dish-section').value,ssKey=document.getElementById('add-dish-subsection').value;
-  const noteEl=document.getElementById('add-note'),name=nameEl.value.trim();
-  if(!name){noteEl.style.display='block';noteEl.textContent='Please enter a dish or prep name.';return;}
-  const items=itemsEl.value.trim()?itemsEl.value.trim().split('\n').map(i=>i.trim()).filter(i=>i):['Prepare as needed'];
-  const st=STATIONS.find(s=>s.key===stKey),ss=st.subsections.find(s=>s.key===ssKey);
-  if(ss.dishes.find(d=>d.name===name)){noteEl.style.display='block';noteEl.textContent=`"${name}" already exists.`;return;}
-  // Save to Supabase
-  const {data:dish} = await sb.from('dishes').insert({station_key:stKey,subsection_key:ssKey,name,sort_order:ss.dishes.length+1,active:true}).select().single();
-  if(dish){
-    const comps=items.map((c,i)=>({dish_id:dish.id,name:c,sort_order:i+1,active:true}));
-    await sb.from('dish_components').insert(comps);
-    ss.dishes.push({id:dish.id,name,items,extra:true});
-    items.forEach(item=>{state[mkId(stKey,ssKey,name,item)]='none';});
-  }
-  nameEl.value='';itemsEl.value='';noteEl.style.display='block';noteEl.textContent=`"${name}" added.`;
-  setTimeout(()=>{noteEl.style.display='none';},3000);
-  if(activeStation!==stKey)switchStation(stKey);else{renderTabs();renderCounter();renderContent();}
-}
-
-async function resetAll(){
-  Object.keys(state).forEach(k=>state[k]='none');
-  activeFilter=null;
-  await sb.from('prep_status').delete().eq('service_date',TODAY);
-  renderTabs();
-  if(activeStation===PASS_KEY)renderPassView();
-  else{renderCounter();renderContent();}
-}
-
-function setDate(){
-  const d=new Date();
-  const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
-  document.getElementById('hdr-date').textContent=days[d.getDay()]+' '+d.getDate()+' '+months[d.getMonth()]+' '+d.getFullYear();
-}
-
-init();
-</script>
 </body>
 </html>
