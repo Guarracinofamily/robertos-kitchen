@@ -13,7 +13,16 @@ const REPORTS_KEY = 'reports_module';
 const ORDER_KEY = 'order_inventory';
 const RECIPES_KEY = 'recipes';
 const SCHED_KEY = 'scheduling';
-const TODAY = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
+function getToday(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+const TODAY = getToday();
+
+// Check every 60s if the date has changed — if so, reload the app cleanly
+setInterval(function(){
+  if(getToday() !== TODAY){
+    // Date changed (passed midnight) — reload to pick up new date
+    window.location.reload();
+  }
+}, 60000);
 const CHECK_STORAGE_KEY = 'robertos-chef-checks-' + TODAY;
 const ORDER_STORAGE_PREFIX = 'robertos-order-list-';
 
