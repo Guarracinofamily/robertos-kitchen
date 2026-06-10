@@ -1968,7 +1968,7 @@ async function schedSendToHR() {
     var weekStr = days[0].toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) +
       ' to ' + days[6].toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
 
-    await schedLoadScript('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js');
+    await schedLoadScript('https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js');
 
     var workbook = new ExcelJS.Workbook();
     workbook.creator = "Roberto's Kitchen";
