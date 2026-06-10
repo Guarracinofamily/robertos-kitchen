@@ -24,16 +24,18 @@ setInterval(function(){
     window.location.reload();
     return;
   }
-  // Version check — silently fetch index.html and compare version
-  fetch(window.location.pathname + '?_=' + Date.now(), {cache:'no-store'})
-    .then(function(r){ return r.text(); })
-    .then(function(html){
-      var m = html.match(/app\.js\?v=(\d+)/);
-      if(m && parseInt(m[1]) > APP_VERSION){
-        // New version available — reload silently
-        window.location.reload();
-      }
-    }).catch(function(){});
+  // Version check — only auto-reload between midnight and 6am (off-peak hours)
+  var hour = new Date().getHours();
+  if(hour >= 0 && hour < 6){
+    fetch(window.location.pathname + '?_=' + Date.now(), {cache:'no-store'})
+      .then(function(r){ return r.text(); })
+      .then(function(html){
+        var m = html.match(/app\.js\?v=(\d+)/);
+        if(m && parseInt(m[1]) > APP_VERSION){
+          window.location.reload();
+        }
+      }).catch(function(){});
+  }
 }, 60000);
 const CHECK_STORAGE_KEY = 'robertos-chef-checks-' + TODAY;
 const ORDER_STORAGE_PREFIX = 'robertos-order-list-';
