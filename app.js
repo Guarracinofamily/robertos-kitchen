@@ -16,12 +16,24 @@ const SCHED_KEY = 'scheduling';
 function getToday(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 const TODAY = getToday();
 
-// Check every 60s if the date has changed — if so, reload the app cleanly
+// Check every 60s: 1) if date changed (midnight), 2) if new app version available
+const APP_VERSION = 1781067473;
 setInterval(function(){
+  // Midnight check
   if(getToday() !== TODAY){
-    // Date changed (passed midnight) — reload to pick up new date
     window.location.reload();
+    return;
   }
+  // Version check — silently fetch index.html and compare version
+  fetch(window.location.pathname + '?_=' + Date.now(), {cache:'no-store'})
+    .then(function(r){ return r.text(); })
+    .then(function(html){
+      var m = html.match(/app\.js\?v=(\d+)/);
+      if(m && parseInt(m[1]) > APP_VERSION){
+        // New version available — reload silently
+        window.location.reload();
+      }
+    }).catch(function(){});
 }, 60000);
 const CHECK_STORAGE_KEY = 'robertos-chef-checks-' + TODAY;
 const ORDER_STORAGE_PREFIX = 'robertos-order-list-';
