@@ -1968,24 +1968,95 @@ async function schedSendToHR() {
     var weekStr = days[0].toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) +
       ' to ' + days[6].toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
 
-    await schedLoadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    await schedLoadScript('https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js');
 
-    var rows = [];
-    rows.push(["ROBERTO'S DIFC — Kitchen Roster: " + weekStr]);
-    rows.push(["Generated: " + new Date().toLocaleString('en-GB')]);
-    rows.push([]);
-    var header = ['Name','Role'];
-    for (var di = 0; di < days.length; di++) header.push(dayNames[di] + ' ' + days[di].toLocaleDateString('en-GB',{day:'numeric',month:'short'}));
-    header.push('Total Hours'); header.push('Days Worked');
-    rows.push(header);
+    var workbook = new ExcelJS.Workbook();
+    workbook.creator = "Roberto's Kitchen";
+    workbook.created = new Date();
 
+    var sheet = workbook.addWorksheet('Roster', {
+      pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1 }
+    });
+
+    var VINO   = '6B1F2A';
+    var SABBIA = 'F5F0E8';
+    var GOLD   = 'C9A84C';
+    var DARK   = '3D0F15';
+    var LIGHT  = 'F0EBE2';
+
+    function vinoBorder() {
+      return { top:{style:'thin',color:{argb:'FF'+GOLD}}, bottom:{style:'thin',color:{argb:'FF'+GOLD}}, left:{style:'thin',color:{argb:'FF'+GOLD}}, right:{style:'thin',color:{argb:'FF'+GOLD}} };
+    }
+    function hairBorder() {
+      return { top:{style:'hair',color:{argb:'FFDDDDDD'}}, bottom:{style:'hair',color:{argb:'FFDDDDDD'}}, left:{style:'hair',color:{argb:'FFDDDDDD'}}, right:{style:'hair',color:{argb:'FFDDDDDD'}} };
+    }
+
+    // Column widths
+    sheet.columns = [
+      {width:28}, {width:22}, {width:14}, {width:14}, {width:14},
+      {width:14}, {width:14}, {width:14}, {width:14}, {width:13}, {width:11}
+    ];
+
+    var totalCols = 11;
+
+    // Title row
+    var titleRow = sheet.addRow(["ROBERTO'S DIFC — Kitchen Roster: " + weekStr]);
+    titleRow.height = 36;
+    sheet.mergeCells(titleRow.number, 1, titleRow.number, totalCols);
+    titleRow.getCell(1).style = {
+      font: { bold:true, size:16, color:{argb:'FF'+SABBIA}, name:'Calibri' },
+      fill: { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+VINO} },
+      alignment: { horizontal:'center', vertical:'middle' }
+    };
+
+    // Subtitle
+    var subRow = sheet.addRow(["Generated: " + new Date().toLocaleString('en-GB') + "   |   Week: " + weekStr]);
+    subRow.height = 18;
+    sheet.mergeCells(subRow.number, 1, subRow.number, totalCols);
+    subRow.getCell(1).style = {
+      font: { size:9, color:{argb:'FF'+VINO}, italic:true, name:'Calibri' },
+      fill: { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+SABBIA} },
+      alignment: { horizontal:'center', vertical:'middle' }
+    };
+
+    // Blank separator
+    sheet.addRow([]);
+
+    // Column header row
+    var hdrCells = ['Name','Role'];
+    for (var di = 0; di < days.length; di++) hdrCells.push(dayNames[di] + ' ' + days[di].toLocaleDateString('en-GB',{day:'numeric',month:'short'}));
+    hdrCells.push('Total Hours'); hdrCells.push('Days Worked');
+    var hdrRow = sheet.addRow(hdrCells);
+    hdrRow.height = 32;
+    hdrRow.eachCell(function(cell) {
+      cell.style = {
+        font: { bold:true, size:10, color:{argb:'FF'+SABBIA}, name:'Calibri' },
+        fill: { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+VINO} },
+        alignment: { horizontal:'center', vertical:'middle', wrapText:true },
+        border: vinoBorder()
+      };
+    });
+
+    // Data rows
     STATIONS_SCH.forEach(function(st) {
       var stStaff = schedStaff.filter(function(s){ return s.station_key === st.key; });
       if (!stStaff.length) return;
-      rows.push([st.label.toUpperCase()]);
+
+      // Station header
+      var stRow = sheet.addRow([st.label.toUpperCase()]);
+      stRow.height = 20;
+      sheet.mergeCells(stRow.number, 1, stRow.number, totalCols);
+      stRow.getCell(1).style = {
+        font: { bold:true, size:10, color:{argb:'FFFFFFF0'}, name:'Calibri' },
+        fill: { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+DARK} },
+        alignment: { horizontal:'left', vertical:'middle', indent:1 }
+      };
+
       stStaff.forEach(function(staff) {
-        var row = [staff.name, staff.designation];
+        var rowData = [staff.name, staff.designation];
         var wHours = 0, wDays = 0;
+        var cellStatuses = [];
+
         for (var dj = 0; dj < days.length; dj++) {
           var ds = formatDate(days[dj]);
           var entry = schedRoster[schedRosterKey(staff.id, ds)];
@@ -1997,185 +2068,55 @@ async function schedSendToHR() {
             if (ts && te) {
               var h = calcHours(ts, te, ts2, te2);
               wHours += h; wDays++;
-              row.push(ts + '-' + te + (ts2 && te2 ? ' / ' + ts2 + '-' + te2 : ''));
-            } else row.push('');
+              rowData.push(ts + '-' + te + (ts2&&te2?' / '+ts2+'-'+te2:''));
+              cellStatuses.push('working');
+            } else { rowData.push(''); cellStatuses.push('empty'); }
           } else {
-            var meta = STATUS_META[entry.status] || {label: entry.status.toUpperCase()};
+            var meta = STATUS_META[entry.status]||{label:entry.status.toUpperCase()};
             if (entry.status !== 'off') wDays++;
-            row.push(meta.label);
+            rowData.push(meta.label);
+            cellStatuses.push(entry.status);
           }
         }
-        row.push(wHours > 0 ? wHours : 0);
-        row.push(wDays);
-        rows.push(row);
+        rowData.push(wHours > 0 ? wHours + 'h' : '');
+        rowData.push(wDays || '');
+
+        var dataRow = sheet.addRow(rowData);
+        dataRow.height = 18;
+
+        dataRow.eachCell({includeEmpty:true}, function(cell, colNumber) {
+          var baseFont = { size:10, name:'Calibri' };
+          var baseBorder = hairBorder();
+          var col = colNumber - 1; // 0-indexed
+
+          if (col === 0) {
+            cell.style = { font:Object.assign({bold:true},baseFont), fill:{type:'pattern',pattern:'solid',fgColor:{argb:'FF'+SABBIA}}, border:baseBorder, alignment:{vertical:'middle'} };
+          } else if (col === 1) {
+            cell.style = { font:Object.assign({italic:true,color:{argb:'FF888888'}},baseFont), fill:{type:'pattern',pattern:'solid',fgColor:{argb:'FF'+SABBIA}}, border:baseBorder, alignment:{vertical:'middle'} };
+          } else if (col >= rowData.length - 2) {
+            cell.style = { font:Object.assign({bold:true,color:{argb:'FF'+VINO}},baseFont), fill:{type:'pattern',pattern:'solid',fgColor:{argb:'FF'+LIGHT}}, border:baseBorder, alignment:{horizontal:'center',vertical:'middle'} };
+          } else {
+            var status = cellStatuses[col-2];
+            var fills = { working:'FFFFFFFF', off:'FFF5F5F5', wo:'FFDBEAFE', sl:'FFFFF3C7', al:'FFD1FAE5', ph:'FFEDE9FE', em:'FFFEE2E2', tr:'FFCCFBF1', cat:'FFFFEDD5', empty:'FFFFFFFF' };
+            var fgColors = { working:'FF333333', off:'FF999999', wo:'FF1e40af', sl:'FF92400e', al:'FF065f46', ph:'FF5b21b6', em:'FF991b1b', tr:'FF134e4a', cat:'FF9a3412', empty:'FFCCCCCC' };
+            cell.style = {
+              font: Object.assign({ bold: status !== 'working' && status !== 'empty', color:{argb: fgColors[status]||'FF333333'} }, baseFont),
+              fill: { type:'pattern', pattern:'solid', fgColor:{argb: fills[status]||'FFFFFFFF'} },
+              border: baseBorder,
+              alignment: { horizontal:'center', vertical:'middle' }
+            };
+          }
+        });
       });
-      rows.push([]);
+
+      // Blank row between stations
+      sheet.addRow([]);
     });
 
-    var wb = XLSX.utils.book_new();
-    var ws = XLSX.utils.aoa_to_sheet(rows);
+    // Generate as base64
+    var xlsxBuffer = await workbook.xlsx.writeBuffer();
+    var xlsxBase64 = btoa(String.fromCharCode.apply(null, new Uint8Array(xlsxBuffer)));
 
-    // ── Column widths ──
-    ws['!cols'] = [{wch:26},{wch:20},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:13},{wch:11}];
-
-    // ── Row heights ──
-    ws['!rows'] = [{hpt:32},{hpt:20},{hpt:8}]; // title rows taller
-
-    // ── Styling ──
-    // Roberto's colours: Vino #6B1F2A, Sabbia #F5F0E8, Gold #C9A84C
-    var VINO    = '6B1F2A';
-    var SABBIA  = 'F5F0E8';
-    var GOLD    = 'C9A84C';
-    var WHITE   = 'FFFFFF';
-    var LIGHT   = 'F0EBE2';
-    var RED_OFF = 'FDDEDE';
-    var AMBER   = 'FFF3CD';
-    var BLUE    = 'DBEAFE';
-    var GREEN   = 'D1FAE5';
-
-    var titleStyle = {
-      font: { bold: true, sz: 16, color: { rgb: WHITE }, name: 'Calibri' },
-      fill: { fgColor: { rgb: VINO } },
-      alignment: { horizontal: 'center', vertical: 'center' }
-    };
-    var subtitleStyle = {
-      font: { sz: 10, color: { rgb: VINO }, italic: true, name: 'Calibri' },
-      fill: { fgColor: { rgb: SABBIA } },
-      alignment: { horizontal: 'center' }
-    };
-    var headerStyle = {
-      font: { bold: true, sz: 11, color: { rgb: WHITE }, name: 'Calibri' },
-      fill: { fgColor: { rgb: VINO } },
-      alignment: { horizontal: 'center', vertical: 'center' },
-      border: {
-        top:    { style: 'thin', color: { rgb: GOLD } },
-        bottom: { style: 'thin', color: { rgb: GOLD } },
-        left:   { style: 'thin', color: { rgb: GOLD } },
-        right:  { style: 'thin', color: { rgb: GOLD } }
-      }
-    };
-    var stationStyle = {
-      font: { bold: true, sz: 10, color: { rgb: WHITE }, name: 'Calibri' },
-      fill: { fgColor: { rgb: '3D0F15' } },
-      alignment: { horizontal: 'left', indent: 1 }
-    };
-    var nameStyle = {
-      font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: '1A1A1A' } },
-      fill: { fgColor: { rgb: SABBIA } },
-      border: { bottom: { style: 'hair', color: { rgb: 'CCCCCC' } } }
-    };
-    var roleStyle = {
-      font: { sz: 9, name: 'Calibri', color: { rgb: '666666' }, italic: true },
-      fill: { fgColor: { rgb: SABBIA } },
-      border: { bottom: { style: 'hair', color: { rgb: 'CCCCCC' } } }
-    };
-    var cellStyle = {
-      font: { sz: 10, name: 'Calibri' },
-      alignment: { horizontal: 'center', vertical: 'center' },
-      border: {
-        top:    { style: 'hair', color: { rgb: 'DDDDDD' } },
-        bottom: { style: 'hair', color: { rgb: 'DDDDDD' } },
-        left:   { style: 'hair', color: { rgb: 'DDDDDD' } },
-        right:  { style: 'hair', color: { rgb: 'DDDDDD' } }
-      }
-    };
-    var hoursStyle = {
-      font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: VINO } },
-      fill: { fgColor: { rgb: LIGHT } },
-      alignment: { horizontal: 'center' }
-    };
-    var offStyle   = Object.assign({}, cellStyle, { font: { sz: 10, name: 'Calibri', color: { rgb: '999999' } }, fill: { fgColor: { rgb: 'F5F5F5' } } });
-    var woStyle    = Object.assign({}, cellStyle, { font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: '1e40af' } }, fill: { fgColor: { rgb: BLUE } } });
-    var slStyle    = Object.assign({}, cellStyle, { font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: '92400e' } }, fill: { fgColor: { rgb: AMBER } } });
-    var emStyle    = Object.assign({}, cellStyle, { font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: '991b1b' } }, fill: { fgColor: { rgb: RED_OFF } } });
-    var alStyle    = Object.assign({}, cellStyle, { font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: '065f46' } }, fill: { fgColor: { rgb: GREEN } } });
-
-    function colNum(n) {
-      var s = '';
-      while (n >= 0) { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n/26) - 1; }
-      return s;
-    }
-
-    // Apply styles row by row
-    var totalCols = 11; // Name + Role + 7 days + Hours + Days
-    var rowIdx = 0;
-    var inHeader = false;
-
-    for (var r = 0; r < rows.length; r++) {
-      var row = rows[r];
-      if (!row || row.length === 0) { rowIdx++; continue; }
-
-      var firstCell = row[0] ? String(row[0]) : '';
-
-      // Title row
-      if (firstCell.includes("ROBERTO")) {
-        for (var c = 0; c < totalCols; c++) {
-          var addr = colNum(c) + (rowIdx+1);
-          if (!ws[addr]) ws[addr] = { v: c===0 ? firstCell : '', t: 's' };
-          ws[addr].s = titleStyle;
-        }
-        // Merge title across all columns
-        if (!ws['!merges']) ws['!merges'] = [];
-        ws['!merges'].push({ s: {r:rowIdx,c:0}, e: {r:rowIdx,c:totalCols-1} });
-        rowIdx++; continue;
-      }
-
-      // Generated line
-      if (firstCell.includes("Generated")) {
-        for (var c = 0; c < totalCols; c++) {
-          var addr = colNum(c) + (rowIdx+1);
-          if (!ws[addr]) ws[addr] = { v: c===0 ? firstCell : '', t: 's' };
-          ws[addr].s = subtitleStyle;
-        }
-        if (!ws['!merges']) ws['!merges'] = [];
-        ws['!merges'].push({ s: {r:rowIdx,c:0}, e: {r:rowIdx,c:totalCols-1} });
-        rowIdx++; continue;
-      }
-
-      // Header row (Name, Role, Mon...)
-      if (firstCell === 'Name') {
-        for (var c = 0; c < row.length; c++) {
-          var addr = colNum(c) + (rowIdx+1);
-          if (ws[addr]) ws[addr].s = headerStyle;
-        }
-        rowIdx++; continue;
-      }
-
-      // Station header
-      var isStation = STATIONS_SCH.some(function(st){ return firstCell === st.label.toUpperCase(); });
-      if (isStation) {
-        for (var c = 0; c < totalCols; c++) {
-          var addr = colNum(c) + (rowIdx+1);
-          if (!ws[addr]) ws[addr] = { v: c===0 ? firstCell : '', t: 's' };
-          ws[addr].s = stationStyle;
-        }
-        if (!ws['!merges']) ws['!merges'] = [];
-        ws['!merges'].push({ s: {r:rowIdx,c:0}, e: {r:rowIdx,c:totalCols-1} });
-        rowIdx++; continue;
-      }
-
-      // Staff data rows
-      if (row.length > 2) {
-        for (var c = 0; c < row.length; c++) {
-          var addr = colNum(c) + (rowIdx+1);
-          if (!ws[addr]) continue;
-          var val = String(row[c] || '');
-          if (c === 0) { ws[addr].s = nameStyle; }
-          else if (c === 1) { ws[addr].s = roleStyle; }
-          else if (c >= row.length - 2) { ws[addr].s = hoursStyle; }
-          else if (val === 'OFF') { ws[addr].s = offStyle; }
-          else if (val === 'WO') { ws[addr].s = woStyle; }
-          else if (val === 'SL') { ws[addr].s = slStyle; }
-          else if (val === 'EM') { ws[addr].s = emStyle; }
-          else if (val === 'AL') { ws[addr].s = alStyle; }
-          else { ws[addr].s = cellStyle; }
-        }
-      }
-      rowIdx++;
-    }
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Roster ' + days[0].toLocaleDateString('en-GB',{day:'numeric',month:'short'}));
-    var xlsxBase64 = XLSX.write(wb, {bookType:'xlsx', type:'base64'});
     var fileName = 'Roster_' + formatDate(days[0]) + '_to_' + formatDate(days[6]) + '.xlsx';
 
     if (btn) btn.textContent = '📧 Sending...';
