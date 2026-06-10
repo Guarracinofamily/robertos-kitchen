@@ -1960,8 +1960,7 @@ function schedPrint() {
 // ── Send to HR (email-ready roster, no manual attachment) ──
 async function schedSendToHR() {
   var btn = document.getElementById('svt-hr');
-  if (btn) { btn.textContent = 'Preparing...'; btn.disabled = true; }
-
+  if (btn) { btn.textContent = '⏳ Generating...'; btn.disabled = true; }
   try {
     var days = [];
     for (var i = 0; i < 7; i++) days.push(addDays(schedWeekStart, i));
@@ -1969,29 +1968,26 @@ async function schedSendToHR() {
     var weekStr = days[0].toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) +
       ' to ' + days[6].toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
 
-    var lines = [];
-    lines.push("Dear HR,");
-    lines.push("");
-    lines.push("Please find below the kitchen roster for the week of " + weekStr + ".");
-    lines.push("");
-    lines.push("ROBERTO'S DIFC - KITCHEN ROSTER");
-    lines.push("Week: " + weekStr);
-    lines.push("");
+    await schedLoadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+
+    var rows = [];
+    rows.push(["ROBERTO'S DIFC — Kitchen Roster: " + weekStr]);
+    rows.push(["Generated: " + new Date().toLocaleString('en-GB')]);
+    rows.push([]);
+    var header = ['Name','Role'];
+    for (var di = 0; di < days.length; di++) header.push(dayNames[di] + ' ' + days[di].toLocaleDateString('en-GB',{day:'numeric',month:'short'}));
+    header.push('Total Hours'); header.push('Days Worked');
+    rows.push(header);
 
     STATIONS_SCH.forEach(function(st) {
       var stStaff = schedStaff.filter(function(s){ return s.station_key === st.key; });
       if (!stStaff.length) return;
-      lines.push(st.label.toUpperCase());
-      lines.push("Name | Role | " + dayNames.map(function(dn, idx){
-        return dn + " " + days[idx].toLocaleDateString('en-GB',{day:'numeric',month:'short'});
-      }).join(" | ") + " | Hours | Days");
-      lines.push("-".repeat(110));
-
+      rows.push([st.label.toUpperCase()]);
       stStaff.forEach(function(staff) {
-        var wHours = 0, wDays = 0;
         var row = [staff.name, staff.designation];
-        days.forEach(function(d) {
-          var ds = formatDate(d);
+        var wHours = 0, wDays = 0;
+        for (var dj = 0; dj < days.length; dj++) {
+          var ds = formatDate(days[dj]);
           var entry = schedRoster[schedRosterKey(staff.id, ds)];
           if (!entry || entry.status === 'working') {
             var ts = entry ? formatTime(entry.shift_start) : '';
@@ -2000,66 +1996,61 @@ async function schedSendToHR() {
             var te2 = entry ? formatTime(entry.shift_end2) : '';
             if (ts && te) {
               var h = calcHours(ts, te, ts2, te2);
-              wHours += h;
-              wDays++;
-              var cellVal = ts + "-" + te;
-              if (ts2 && te2) cellVal += " / " + ts2 + "-" + te2;
-              row.push(cellVal);
-            } else {
-              row.push("");
-            }
+              wHours += h; wDays++;
+              row.push(ts + '-' + te + (ts2 && te2 ? ' / ' + ts2 + '-' + te2 : ''));
+            } else row.push('');
           } else {
-            var meta = STATUS_META[entry.status] || { label: entry.status.toUpperCase() };
+            var meta = STATUS_META[entry.status] || {label: entry.status.toUpperCase()};
             if (entry.status !== 'off') wDays++;
             row.push(meta.label);
           }
-        });
-        row.push(wHours > 0 ? wHours + "h" : "");
-        row.push(wDays || "");
-        lines.push(row.join(" | "));
+        }
+        row.push(wHours > 0 ? wHours : 0);
+        row.push(wDays);
+        rows.push(row);
       });
-      lines.push("");
+      rows.push([]);
     });
 
-    lines.push("Please do not hesitate to contact me if you need any clarification.");
-    lines.push("");
-    lines.push("Best regards,");
-    lines.push("Kitchen Management");
-    lines.push("Roberto's DIFC");
+    var wb = XLSX.utils.book_new();
+    var ws = XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols'] = [{wch:24},{wch:20},{wch:13},{wch:13},{wch:13},{wch:13},{wch:13},{wch:13},{wch:13},{wch:13},{wch:11}];
+    XLSX.utils.book_append_sheet(wb, ws, 'Roster');
+    var xlsxBase64 = XLSX.write(wb, {bookType:'xlsx', type:'base64'});
+    var fileName = 'Roster_' + formatDate(days[0]) + '_to_' + formatDate(days[6]) + '.xlsx';
 
-    var bodyText = lines.join("\n");
-    var subject = "Kitchen Roster: " + weekStr;
-    var to = "hr@robertos.ae,lmadlag@robertos.ae,dsaxena@robertos.ae";
+    if (btn) btn.textContent = '📧 Sending...';
 
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(bodyText);
-      }
-    } catch(copyErr) {
-      console.warn('Clipboard copy failed:', copyErr);
-    }
+    var emailRes = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer re_DV2gjCqH_4JmjoPbm4PLanhPRoXmkiYCs'
+      },
+      body: JSON.stringify({
+        from: "Roberto's Kitchen <onboarding@resend.dev>",
+        to: ['hr@robertos.ae','lmadlag@robertos.ae','dsaxena@robertos.ae'],
+        subject: "Kitchen Roster: " + weekStr,
+        html: "<p>Dear HR Team,</p><p>Please find attached the kitchen roster for the week of <strong>" + weekStr + "</strong>.</p><p>The Excel file contains shift times, total hours and days worked per person.</p><p>Best regards,<br>Kitchen Management<br>Roberto's DIFC</p>",
+        attachments: [{ filename: fileName, content: xlsxBase64 }]
+      })
+    });
 
-    var encodedBody = encodeURIComponent(bodyText);
-    var mailBody = encodedBody.length < 7500 ? encodedBody : encodeURIComponent(
-      "Dear HR,\n\nThe kitchen roster for " + weekStr + " has been copied to my clipboard. I will paste it below.\n\nBest regards,\nKitchen Management\nRoberto's DIFC\n\n"
-    );
-    window.location.href = "mailto:" + to + "?subject=" + encodeURIComponent(subject) + "&body=" + mailBody;
+    var emailData = await emailRes.json();
+    if (!emailRes.ok) throw new Error(emailData.message || 'Email failed: ' + emailRes.status);
 
-    if (encodedBody.length >= 7500) {
-      alert("The roster is too long for the email body, so it has been copied. Paste it into the email before sending.");
+    if (btn) {
+      btn.textContent = '✓ Sent to HR';
+      btn.style.background = 'var(--oliva)'; btn.style.borderColor = 'var(--oliva)';
+      setTimeout(function(){ btn.textContent = '📧 Send to HR'; btn.style.background=''; btn.style.borderColor=''; btn.disabled=false; }, 3000);
     }
   } catch(err) {
-    console.error('HR email error:', err);
-    alert('Email failed: ' + err.message);
-  }
-
-  if (btn) {
-    setTimeout(function(){
-      btn.textContent = 'Send to HR';
-      btn.disabled = false;
-    }, 2000);
+    console.error('Send to HR error:', err);
+    alert('Failed: ' + (err.message || err));
+    if (btn) { btn.textContent = '📧 Send to HR'; btn.disabled = false; }
   }
 }
+
 
 function schedLoadScript(src) {
   return new Promise(function(resolve, reject) {
