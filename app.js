@@ -2030,6 +2030,8 @@ async function schedSendToHR() {
       body: JSON.stringify({
         from: "Roberto's Kitchen <onboarding@resend.dev>",
         to: ['hr@robertos.ae','lmadlag@robertos.ae','dsaxena@robertos.ae'],
+        cc: ['dvalla@robertos.ae','astellacci@robertos.ae'],
+        reply_to: 'dvalla@robertos.ae',
         subject: "Kitchen Roster: " + weekStr,
         html: "<p>Dear HR Team,</p><p>Please find attached the kitchen roster for the week of <strong>" + weekStr + "</strong>.</p><p>The Excel file contains shift times, total hours and days worked per person.</p><p>Best regards,<br>Kitchen Management<br>Roberto's DIFC</p>",
         attachments: [{ filename: fileName, content: xlsxBase64 }]
