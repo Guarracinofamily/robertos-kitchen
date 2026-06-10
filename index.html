@@ -62,13 +62,13 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 /* â”€â”€ COUNTER â”€â”€ */
 .sec-counter{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 18px;background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark)}
-.sc-card{border-radius:4px;padding:14px 16px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;outline:2px solid transparent;transition:opacity .15s;min-width:80px}
+.sc-card{border-radius:4px;padding:10px 8px 8px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;outline:2px solid transparent;transition:opacity .15s}
 .sc-card:hover{opacity:.88}.sc-card.filter-active{outline:2px solid var(--vino)}
 .sc-card.c-sos{background:#cc0000}.sc-card.c-bu{background:#c49200}.sc-card.c-ok{background:var(--oliva)}.sc-card.c-pending{background:var(--sabbia-dark)}
-.sc-num{font-size:32px;font-weight:400;line-height:1;font-family:var(--font-serif)}
+.sc-num{font-size:28px;font-weight:400;line-height:1;font-family:var(--font-serif)}
 .sc-card.c-sos .sc-num,.sc-card.c-ok .sc-num,.sc-card.c-bu .sc-num{color:#fff}
 .sc-card.c-pending .sc-num{color:var(--vino)}
-.sc-label{font-size:11px;letter-spacing:2px;text-transform:uppercase}
+.sc-label{font-size:9px;letter-spacing:2px;text-transform:uppercase}
 .sc-card.c-sos .sc-label,.sc-card.c-ok .sc-label,.sc-card.c-bu .sc-label{color:rgba(255,255,255,.85)}
 .sc-card.c-pending .sc-label{color:var(--vino-light)}
 .filter-bar{display:none;align-items:center;gap:8px;padding:7px 18px;background:var(--cream);border-bottom:1px solid var(--sabbia-dark)}
@@ -500,33 +500,6 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .sch-hr-btn:hover{background:#fcd34d;color:var(--vino)}
 .sch-hr-btn:disabled{opacity:.5;cursor:wait}
 
-
-/* Scheduling week summary */
-.sch-summary-row td{background:var(--vino);color:var(--cream);font-size:12px;font-weight:700;padding:8px 6px;text-align:center;border:1px solid rgba(255,255,255,.15)}
-.sch-summary-row td.sum-label{text-align:left;padding-left:12px;letter-spacing:1px;text-transform:uppercase;font-size:10px}
-/* All done bar */
-#all-done-bar{font-size:15px;letter-spacing:1px}
-
-
-/* Dashboard covers */
-.dash-covers-card{position:relative}
-.dash-covers-sync{font-size:9px;letter-spacing:.5px;opacity:.6;margin-top:4px;font-family:var(--font-sans)}
-.dash-no-covers .ops-num{opacity:.3}
-.dash-covers-row{display:flex;gap:0;overflow-x:auto;padding:12px 16px}
-.dash-cover-day{flex:1;min-width:80px;text-align:center;padding:10px 8px;border-right:1px solid var(--sabbia-dark)}
-.dash-cover-day:last-child{border-right:none}
-.dash-cover-today{background:var(--vino);border-radius:4px;color:var(--cream)}
-.dash-cover-today .dash-cover-label{color:rgba(255,255,255,.7)}
-.dash-cover-today .dash-cover-sub{color:rgba(255,255,255,.5)}
-.dash-cover-label{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--vino-light);font-family:var(--font-sans);margin-bottom:4px}
-.dash-cover-num{font-size:24px;font-family:var(--font-serif);color:var(--ink);line-height:1}
-.dash-cover-sub{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--vino-light);margin-top:2px;font-family:var(--font-sans)}
-
-
-.sr-sync-btn{padding:8px 16px;border-radius:4px;border:1px solid var(--vino);background:none;color:var(--vino);font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;font-family:var(--font-sans);transition:all .2s;white-space:nowrap}
-.sr-sync-btn:hover{background:var(--vino);color:var(--cream)}
-.sr-sync-btn:disabled{opacity:.5;cursor:wait}
-
 </style>
 </head>
 <body>
@@ -550,7 +523,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     </div>
     <div class="header-right">
       <span class="hdr-date" id="hdr-date"></span>
-      <span class="hdr-sub">Kitchen Prep <span class="realtime-dot" id="realtime-dot" title="Realtime sync status"></span></span><span id="pass-timestamp" style="font-size:10px;color:var(--vino-light);letter-spacing:.5px;font-family:var(--font-sans);margin-left:8px"></span>
+      <span class="hdr-sub">Kitchen Prep <span class="realtime-dot" id="realtime-dot" title="Realtime sync status"></span></span>
     </div>
   </div>
   <div class="section-tabs" id="section-tabs"></div>
@@ -634,7 +607,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 <script src="order-items.js?v=1781013045"></script>
 <script src="recipes.js?v=1781013045"></script>
-<script src="app.js?v=1781029744"></script>
+<script src="app.js?v=1781067209"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->

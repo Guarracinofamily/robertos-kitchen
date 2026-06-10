@@ -13,7 +13,7 @@ const REPORTS_KEY = 'reports_module';
 const ORDER_KEY = 'order_inventory';
 const RECIPES_KEY = 'recipes';
 const SCHED_KEY = 'scheduling';
-const TODAY = new Date().toISOString().split('T')[0];
+const TODAY = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
 const CHECK_STORAGE_KEY = 'robertos-chef-checks-' + TODAY;
 const ORDER_STORAGE_PREFIX = 'robertos-order-list-';
 
@@ -25,7 +25,6 @@ let activeOrderDate = TODAY;
 let activeRecipeId = null;
 let activeCheckStation = null;
 let activeStation = PASS_KEY;
-let passRefreshTimer = null;
 let activeFilter = null;
 let undoStack = null;
 let undoTimer = null;
@@ -293,10 +292,6 @@ function renderTabs() {
 }
 
 // â”€â”€ PASS VIEW â”€â”€
-function updatePassTimestamp(){
-  const el = document.getElementById('pass-timestamp');
-  if(el) el.textContent = 'Updated ' + new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-}
 function renderPassView() {
   const c=allCounts();
   const pct=(v)=>c.total?Math.round(v/c.total*100):0;
@@ -462,40 +457,11 @@ function renderStationChecks(stKey){
 
 // â”€â”€ DASHBOARD â”€â”€
 function statusLabel(s){return {none:'Pending',sos:'SOS',bu:'Backup',ok:'OK',review:'To check',discard:'Discard'}[s]||s;}
-// Covers data loaded from Supabase
-let dashCovers = {};
-
-async function loadCovers() {
-  const { data } = await sb.from('covers').select('*').gte('service_date', TODAY).order('service_date');
-  dashCovers = {};
-  if (data) data.forEach(function(r){ dashCovers[r.service_date] = r; });
-}
-
-async function renderDashboard(){
-  await loadCovers();
+function renderDashboard(){
   const prep=allCounts();
   const checks=allCheckCounts();
   const ready=prep.total?Math.round(prep.ok/prep.total*100):0;
   const critical=criticalRows();
-
-  // Tonight's covers
-  const tonight = dashCovers[TODAY];
-  const nightCovers = tonight ? tonight.night_covers : null;
-  const coversUpdated = tonight ? new Date(tonight.updated_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'}) : null;
-
-  // Next 6 days covers
-  const upcomingDays = [];
-  for (var di = 0; di < 7; di++) {
-    var d = new Date(); d.setDate(d.getDate() + di);
-    var ds = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-    var row = dashCovers[ds];
-    if (row) upcomingDays.push({
-      label: di === 0 ? 'Tonight' : d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'}),
-      night: row.night_covers,
-      day: row.day_covers
-    });
-  }
-
   const stationMeters=STATIONS.map(st=>{
     const c=stationCounts(st), total=c.sos+c.bu+c.ok+c.none||1;
     return `<div class="station-meter">
@@ -508,7 +474,6 @@ async function renderDashboard(){
       <div class="meter-pct">${stationReadiness(st)}%</div>
     </div>`;
   }).join('');
-
   const criticalList=critical.length?critical.slice(0,18).map(r=>`
     <div class="critical-item">
       <span class="check-badge ${r.status==='sos'?'discard':r.status==='bu'?'review':r.status}">${statusLabel(r.status)}</span>
@@ -518,46 +483,15 @@ async function renderDashboard(){
         ${r.note?`<div class="check-card-note">${r.note}</div>`:''}
       </div>
     </div>`).join(''):`<div class="report-no-data">No critical items at the moment</div>`;
-
-  const coversRow = upcomingDays.map(function(d){
-    return '<div class="dash-cover-day' + (d.label==='Tonight'?' dash-cover-today':'') + '">' +
-      '<div class="dash-cover-label">' + d.label + '</div>' +
-      '<div class="dash-cover-num">' + d.night + '</div>' +
-      '<div class="dash-cover-sub">night</div>' +
-    '</div>';
-  }).join('');
-
-  const coversCard = nightCovers !== null
-    ? `<div class="ops-card dark dash-covers-card">
-        <div class="ops-num">${nightCovers}</div>
-        <div class="ops-label">Tonight's covers</div>
-        ${coversUpdated ? '<div class="dash-covers-sync">SevenRooms · updated ' + coversUpdated + '</div>' : ''}
-       </div>`
-    : `<div class="ops-card dash-covers-card dash-no-covers">
-        <div class="ops-num">—</div>
-        <div class="ops-label">Tonight's covers</div>
-        <div class="dash-covers-sync">Not synced — use laptop to sync</div>
-       </div>`;
-
   document.getElementById('dashboard-view').innerHTML=`
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">
-      <div>
-        <div class="ops-title" style="margin-bottom:2px">Dashboard</div>
-        <div class="ops-subtitle">${TODAY} · Live kitchen overview</div>
-      </div>
-      <button id="sr-sync-btn" class="sr-sync-btn" onclick="syncSevenRoomsCovers()">↻ Sync SevenRooms</button>
-    </div>
+    <div class="ops-title">Dashboard</div>
+    <div class="ops-subtitle">${TODAY} · Live kitchen overview</div>
     <div class="ops-grid">
-      ${coversCard}
       <div class="ops-card dark"><div class="ops-num">${ready}%</div><div class="ops-label">Prep readiness</div></div>
-      <div class="ops-card"><div class="ops-num">${prep.sos}</div><div class="ops-label">SOS items</div></div>
-      <div class="ops-card"><div class="ops-num">${checks.review + checks.discard}</div><div class="ops-label">Chef attention</div></div>
+      <div class="ops-card"><div class="ops-num">${prep.sos}</div><div class="ops-label">SOS prep items</div></div>
+      <div class="ops-card"><div class="ops-num">${checks.review}</div><div class="ops-label">Chef to check</div></div>
+      <div class="ops-card"><div class="ops-num">${checks.discard}</div><div class="ops-label">Chef discard</div></div>
     </div>
-    ${upcomingDays.length > 1 ? `
-    <div class="ops-panel" style="margin-bottom:16px">
-      <div class="ops-panel-head">Upcoming covers <span style="font-size:10px;opacity:.6;font-weight:400;margin-left:8px">from SevenRooms</span></div>
-      <div class="dash-covers-row">${coversRow}</div>
-    </div>` : ''}
     <div class="ops-two">
       <div class="ops-panel">
         <div class="ops-panel-head">Station readiness</div>
@@ -568,110 +502,6 @@ async function renderDashboard(){
         <div class="ops-panel-body"><div class="critical-list">${criticalList}</div></div>
       </div>
     </div>`;
-}
-
-// ── SevenRooms Sync ──
-// Opens SevenRooms in a hidden iframe, reads covers, pushes to Supabase
-// Only works if already logged into SevenRooms in the same browser
-async function syncSevenRoomsCovers() {
-  var btn = document.getElementById('sr-sync-btn');
-  if (btn) { btn.textContent = '⟳ Syncing...'; btn.disabled = true; }
-
-  try {
-    // Fetch the SevenRooms home page with credentials (session cookies)
-    var res = await fetch('https://www.sevenrooms.com/app/home/robertosdubai', {
-      credentials: 'include',
-      headers: { 'Accept': 'text/html' }
-    });
-
-    if (!res.ok) throw new Error('Not logged in to SevenRooms (' + res.status + ')');
-
-    var html = await res.text();
-
-    // Parse covers from the page text
-    // SevenRooms renders data as JSON in a script tag
-    var jsonMatch = html.match(/"upcoming_covers":\s*(\[[\s\S]*?\])/);
-    var days = [];
-
-    if (jsonMatch) {
-      // Parse from JSON data in page
-      try {
-        var coversData = JSON.parse(jsonMatch[1]);
-        coversData.forEach(function(d) {
-          if (d.date && (d.night_covers !== undefined || d.covers !== undefined)) {
-            days.push({
-              service_date: d.date,
-              day_covers: d.day_covers || 0,
-              night_covers: d.night_covers || d.covers || 0,
-              updated_at: new Date().toISOString()
-            });
-          }
-        });
-      } catch(e) {}
-    }
-
-    // Fallback: parse from rendered text
-    if (days.length === 0) {
-      var lines = html.replace(/<[^>]+>/g,'').split('\n').map(function(l){ return l.trim(); }).filter(function(l){ return l; });
-      var si = -1;
-      for (var li = 0; li < lines.length; li++) {
-        if (lines[li].includes('UPCOMING COVERS')) { si = li; break; }
-      }
-      if (si === -1) throw new Error('Could not find covers data — make sure you are logged into SevenRooms');
-
-      var i = si + 1;
-      var count = 0;
-      while (i < lines.length && count < 7) {
-        var m = lines[i].match(/(\d+)\/(\d+)/);
-        if (m) {
-          var dayN = parseInt(lines[i+1]) || 0;
-          var nightN = parseInt(lines[i+3]) || 0;
-          var date = '2026-' + m[2].padStart(2,'0') + '-' + m[1].padStart(2,'0');
-          days.push({ service_date: date, day_covers: dayN, night_covers: nightN, updated_at: new Date().toISOString() });
-          count++;
-          i += 5;
-        } else { i++; }
-      }
-    }
-
-    if (days.length === 0) throw new Error('No covers data found — try refreshing SevenRooms first');
-
-    // Push to Supabase
-    var pushRes = await sb.from('covers').upsert(days, { onConflict: 'service_date' });
-    if (pushRes.error) throw new Error(pushRes.error.message);
-
-    // Update local cache and re-render
-    days.forEach(function(d){ dashCovers[d.service_date] = d; });
-
-    if (btn) {
-      btn.textContent = '✓ Synced ' + days.length + ' days';
-      btn.style.background = 'var(--oliva)';
-      btn.style.borderColor = 'var(--oliva)';
-      setTimeout(function(){
-        btn.textContent = '↻ Sync SevenRooms';
-        btn.style.background = '';
-        btn.style.borderColor = '';
-        btn.disabled = false;
-      }, 3000);
-    }
-    renderDashboard();
-
-  } catch(err) {
-    console.error('SevenRooms sync error:', err);
-    if (btn) {
-      btn.textContent = '↻ Sync SevenRooms';
-      btn.disabled = false;
-    }
-    // Show user-friendly message
-    var msg = err.message || 'Unknown error';
-    if (msg.includes('Not logged') || msg.includes('401') || msg.includes('403')) {
-      alert('Not logged into SevenRooms.\n\nOpen www.sevenrooms.com/app/home/robertosdubai in this browser, log in, then try again.');
-    } else if (msg.includes('CORS') || msg.includes('fetch')) {
-      alert('Browser blocked the request.\n\nMake sure you are using this app on your laptop (not a kitchen screen) and are logged into SevenRooms.');
-    } else {
-      alert('Sync failed: ' + msg);
-    }
-  }
 }
 
 // â”€â”€ REPORTS â”€â”€
@@ -1008,13 +838,6 @@ function renderCounter() {
     {cls:'c-pending',key:'none',num:c.none,label:'Pending'},
   ].map(card=>`<div class="sc-card ${card.cls}${activeFilter===card.key?' filter-active':''}" onclick="toggleFilter('${card.key}')"><span class="sc-num">${card.num}</span><span class="sc-label">${card.label}</span></div>`).join('');
   document.getElementById('foot-label').textContent=`${st.label} · ${total} items total`;
-  // All done indicator
-  const allDoneBar = document.getElementById('all-done-bar');
-  if(allDoneBar){
-    const allOK = total > 0 && c.sos === 0 && c.bu === 0 && c.none === 0;
-    allDoneBar.style.display = allOK ? 'flex' : 'none';
-    allDoneBar.textContent = '✓ ' + st.label + ' — All items ready!';
-  }
   const fb=document.getElementById('filter-bar');
   if(activeFilter){fb.classList.add('visible');document.getElementById('filter-label-text').textContent={sos:'SOS only',bu:'Backup only',ok:'OK only',none:'Pending only'}[activeFilter];}
   else fb.classList.remove('visible');
@@ -1355,12 +1178,6 @@ function switchStation(key){
     var pv=document.getElementById('pass-view');if(pv)pv.style.display='block';
     document.getElementById('foot-label').textContent='The Pass · All stations';
     renderPassView();
-    updatePassTimestamp();
-    if(typeof passRefreshTimer !== 'undefined' && passRefreshTimer) clearInterval(passRefreshTimer);
-    passRefreshTimer = setInterval(function(){
-      if(activeStation===PASS_KEY){ renderPassView(); updatePassTimestamp(); }
-      else { clearInterval(passRefreshTimer); passRefreshTimer=null; }
-    }, 60000);
   } else {
     var show={'content':'block','legend-bar':'flex','sec-counter-wrap':'block','add-section-wrap':'block'};
     Object.keys(show).forEach(function(id){var el=document.getElementById(id);if(el)el.style.display=show[id];});
@@ -1410,30 +1227,12 @@ async function addDish(){
 }
 
 async function resetAll(){
-  if(activeStation===PASS_KEY){
-    // On Pass view — reset everything
-    if(!confirm('Reset ALL stations for today?'))return;
-    Object.keys(state).forEach(k=>state[k]='none');
-    activeFilter=null;
-    if(!DEV_READ_ONLY) await sb.from('prep_status').delete().eq('service_date',TODAY);
-    renderTabs();
-    renderPassView();
-  } else {
-    // On a station — reset only that station
-    const st=STATIONS.find(s=>s.key===activeStation);
-    if(!st)return;
-    if(!confirm('Reset ' + st.label + ' only?'))return;
-    st.subsections.forEach(ss=>ss.dishes.forEach(d=>d.items.forEach(item=>{
-      const id=mkId(st.key,ss.key,d.name,item);
-      state[id]='none';
-    })));
-    activeFilter=null;
-    if(!DEV_READ_ONLY) await sb.from('prep_status').delete()
-      .eq('service_date',TODAY).eq('station_key',activeStation);
-    renderTabs();
-    renderCounter();
-    renderContent();
-  }
+  Object.keys(state).forEach(k=>state[k]='none');
+  activeFilter=null;
+  if (!DEV_READ_ONLY) await sb.from('prep_status').delete().eq('service_date',TODAY);
+  renderTabs();
+  if(activeStation===PASS_KEY)renderPassView();
+  else{renderCounter();renderContent();}
 }
 
 function setDate(){
@@ -1629,8 +1428,7 @@ function renderSchedWeek() {
         html += '<tr>';
         html += '<td class="sch-td-name">' +
           '<span class="sch-del-btn" onclick="schedConfirmDelete(event,\'' + sid + '\')" title="Remove">×</span>' +
-          '<span onclick="schedEditName(event,\'' + sid + '\')" title="Click to edit name" style="cursor:pointer">' + staff.name + ' <span style="opacity:.3;font-size:10px">✎</span></span>' +
-          '</td>';
+          staff.name + '</td>';
         html += '<td class="sch-td-role" onclick="schedEditRole(event,\'' + sid + '\')" title="Click to edit" style="cursor:pointer">' +
           staff.designation + ' <span style="opacity:.3;font-size:10px">✎</span></td>';
 
@@ -1691,35 +1489,7 @@ function renderSchedWeek() {
     '</td></tr>';
   }
 
-  // Week summary row — total hours per day + grand total
-  html += '<tfoot><tr class="sch-summary-row"><td class="sum-label">Total hours</td><td></td>';
-  for (var sumDi = 0; sumDi < days.length; sumDi++) {
-    var sumDs = formatDate(days[sumDi]);
-    var dayTotal = 0;
-    schedStaff.forEach(function(s) {
-      var rr = schedRoster[schedRosterKey(s.id, sumDs)];
-      if (!rr || rr.status === 'working') {
-        var ts = rr ? formatTime(rr.shift_start) : '';
-        var te = rr ? formatTime(rr.shift_end) : '';
-        if (ts && te) dayTotal += calcHours(ts, te, rr ? formatTime(rr.shift_start2) : '', rr ? formatTime(rr.shift_end2) : '');
-      }
-    });
-    html += '<td>' + (dayTotal > 0 ? dayTotal + 'h' : '—') + '</td>';
-  }
-  // Grand total
-  var grandTotal = 0;
-  schedStaff.forEach(function(s) {
-    for (var gi = 0; gi < days.length; gi++) {
-      var rr = schedRoster[schedRosterKey(s.id, formatDate(days[gi]))];
-      if (!rr || rr.status === 'working') {
-        var ts = rr ? formatTime(rr.shift_start) : '';
-        var te = rr ? formatTime(rr.shift_end) : '';
-        if (ts && te) grandTotal += calcHours(ts, te, rr ? formatTime(rr.shift_start2) : '', rr ? formatTime(rr.shift_end2) : '');
-      }
-    }
-  });
-  html += '<td>' + (grandTotal > 0 ? grandTotal + 'h' : '—') + '</td><td>—</td><td></td></tr></tfoot>';
-  html += '</table>';
+  html += '</tbody></table>';
   document.getElementById('sch-grid-wrap').innerHTML = html;
 }
 
@@ -1904,36 +1674,6 @@ async function schedMoveStation(staffId, mpid) {
 
 
 // ── Edit role inline ──
-function schedEditName(event, staffId) {
-  event.stopPropagation();
-  var staff = schedStaff.find(function(s){ return s.id === staffId; });
-  if (!staff) return;
-  var td = event.currentTarget.parentElement;
-  var delBtn = td.querySelector('.sch-del-btn').outerHTML;
-  var inp = document.createElement('input');
-  inp.type = 'text';
-  inp.className = 'sch-role-input';
-  inp.value = staff.name;
-  inp.style.cssText = 'width:130px;padding:3px 6px;border:1px solid var(--vino);border-radius:3px;font-size:13px;font-family:var(--font-serif);background:var(--cream)';
-  inp.addEventListener('blur', function(){ schedSaveName(staffId, inp); });
-  inp.addEventListener('keydown', function(e){ if(e.key==='Enter') inp.blur(); if(e.key==='Escape') renderSchedWeek(); });
-  td.innerHTML = delBtn;
-  td.appendChild(inp);
-  inp.focus();
-  inp.select();
-}
-async function schedSaveName(staffId, input) {
-  var newName = input.value.trim();
-  var staff = schedStaff.find(function(s){ return s.id === staffId; });
-  if (!staff || !newName || newName === staff.name) { renderSchedWeek(); return; }
-  staff.name = newName;
-  renderSchedWeek();
-  if (!DEV_READ_ONLY) {
-    var res = await sb.from('staff').update({ name: newName }).eq('id', staffId);
-    if (res.error) { console.error('Name update error:', res.error); loadSchedData().then(renderSchedWeek); }
-  }
-}
-
 function schedEditRole(event, staffId) {
   event.stopPropagation();
   var staff = schedStaff.find(function(s){ return s.id === staffId; });
