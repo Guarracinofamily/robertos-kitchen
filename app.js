@@ -2014,8 +2014,167 @@ async function schedSendToHR() {
 
     var wb = XLSX.utils.book_new();
     var ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{wch:24},{wch:20},{wch:13},{wch:13},{wch:13},{wch:13},{wch:13},{wch:13},{wch:13},{wch:13},{wch:11}];
-    XLSX.utils.book_append_sheet(wb, ws, 'Roster');
+
+    // ── Column widths ──
+    ws['!cols'] = [{wch:26},{wch:20},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:13},{wch:11}];
+
+    // ── Row heights ──
+    ws['!rows'] = [{hpt:32},{hpt:20},{hpt:8}]; // title rows taller
+
+    // ── Styling ──
+    // Roberto's colours: Vino #6B1F2A, Sabbia #F5F0E8, Gold #C9A84C
+    var VINO    = '6B1F2A';
+    var SABBIA  = 'F5F0E8';
+    var GOLD    = 'C9A84C';
+    var WHITE   = 'FFFFFF';
+    var LIGHT   = 'F0EBE2';
+    var RED_OFF = 'FDDEDE';
+    var AMBER   = 'FFF3CD';
+    var BLUE    = 'DBEAFE';
+    var GREEN   = 'D1FAE5';
+
+    var titleStyle = {
+      font: { bold: true, sz: 16, color: { rgb: WHITE }, name: 'Calibri' },
+      fill: { fgColor: { rgb: VINO } },
+      alignment: { horizontal: 'center', vertical: 'center' }
+    };
+    var subtitleStyle = {
+      font: { sz: 10, color: { rgb: VINO }, italic: true, name: 'Calibri' },
+      fill: { fgColor: { rgb: SABBIA } },
+      alignment: { horizontal: 'center' }
+    };
+    var headerStyle = {
+      font: { bold: true, sz: 11, color: { rgb: WHITE }, name: 'Calibri' },
+      fill: { fgColor: { rgb: VINO } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        top:    { style: 'thin', color: { rgb: GOLD } },
+        bottom: { style: 'thin', color: { rgb: GOLD } },
+        left:   { style: 'thin', color: { rgb: GOLD } },
+        right:  { style: 'thin', color: { rgb: GOLD } }
+      }
+    };
+    var stationStyle = {
+      font: { bold: true, sz: 10, color: { rgb: WHITE }, name: 'Calibri' },
+      fill: { fgColor: { rgb: '3D0F15' } },
+      alignment: { horizontal: 'left', indent: 1 }
+    };
+    var nameStyle = {
+      font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: '1A1A1A' } },
+      fill: { fgColor: { rgb: SABBIA } },
+      border: { bottom: { style: 'hair', color: { rgb: 'CCCCCC' } } }
+    };
+    var roleStyle = {
+      font: { sz: 9, name: 'Calibri', color: { rgb: '666666' }, italic: true },
+      fill: { fgColor: { rgb: SABBIA } },
+      border: { bottom: { style: 'hair', color: { rgb: 'CCCCCC' } } }
+    };
+    var cellStyle = {
+      font: { sz: 10, name: 'Calibri' },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        top:    { style: 'hair', color: { rgb: 'DDDDDD' } },
+        bottom: { style: 'hair', color: { rgb: 'DDDDDD' } },
+        left:   { style: 'hair', color: { rgb: 'DDDDDD' } },
+        right:  { style: 'hair', color: { rgb: 'DDDDDD' } }
+      }
+    };
+    var hoursStyle = {
+      font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: VINO } },
+      fill: { fgColor: { rgb: LIGHT } },
+      alignment: { horizontal: 'center' }
+    };
+    var offStyle   = Object.assign({}, cellStyle, { font: { sz: 10, name: 'Calibri', color: { rgb: '999999' } }, fill: { fgColor: { rgb: 'F5F5F5' } } });
+    var woStyle    = Object.assign({}, cellStyle, { font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: '1e40af' } }, fill: { fgColor: { rgb: BLUE } } });
+    var slStyle    = Object.assign({}, cellStyle, { font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: '92400e' } }, fill: { fgColor: { rgb: AMBER } } });
+    var emStyle    = Object.assign({}, cellStyle, { font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: '991b1b' } }, fill: { fgColor: { rgb: RED_OFF } } });
+    var alStyle    = Object.assign({}, cellStyle, { font: { bold: true, sz: 10, name: 'Calibri', color: { rgb: '065f46' } }, fill: { fgColor: { rgb: GREEN } } });
+
+    function colNum(n) {
+      var s = '';
+      while (n >= 0) { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n/26) - 1; }
+      return s;
+    }
+
+    // Apply styles row by row
+    var totalCols = 11; // Name + Role + 7 days + Hours + Days
+    var rowIdx = 0;
+    var inHeader = false;
+
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r];
+      if (!row || row.length === 0) { rowIdx++; continue; }
+
+      var firstCell = row[0] ? String(row[0]) : '';
+
+      // Title row
+      if (firstCell.includes("ROBERTO")) {
+        for (var c = 0; c < totalCols; c++) {
+          var addr = colNum(c) + (rowIdx+1);
+          if (!ws[addr]) ws[addr] = { v: c===0 ? firstCell : '', t: 's' };
+          ws[addr].s = titleStyle;
+        }
+        // Merge title across all columns
+        if (!ws['!merges']) ws['!merges'] = [];
+        ws['!merges'].push({ s: {r:rowIdx,c:0}, e: {r:rowIdx,c:totalCols-1} });
+        rowIdx++; continue;
+      }
+
+      // Generated line
+      if (firstCell.includes("Generated")) {
+        for (var c = 0; c < totalCols; c++) {
+          var addr = colNum(c) + (rowIdx+1);
+          if (!ws[addr]) ws[addr] = { v: c===0 ? firstCell : '', t: 's' };
+          ws[addr].s = subtitleStyle;
+        }
+        if (!ws['!merges']) ws['!merges'] = [];
+        ws['!merges'].push({ s: {r:rowIdx,c:0}, e: {r:rowIdx,c:totalCols-1} });
+        rowIdx++; continue;
+      }
+
+      // Header row (Name, Role, Mon...)
+      if (firstCell === 'Name') {
+        for (var c = 0; c < row.length; c++) {
+          var addr = colNum(c) + (rowIdx+1);
+          if (ws[addr]) ws[addr].s = headerStyle;
+        }
+        rowIdx++; continue;
+      }
+
+      // Station header
+      var isStation = STATIONS_SCH.some(function(st){ return firstCell === st.label.toUpperCase(); });
+      if (isStation) {
+        for (var c = 0; c < totalCols; c++) {
+          var addr = colNum(c) + (rowIdx+1);
+          if (!ws[addr]) ws[addr] = { v: c===0 ? firstCell : '', t: 's' };
+          ws[addr].s = stationStyle;
+        }
+        if (!ws['!merges']) ws['!merges'] = [];
+        ws['!merges'].push({ s: {r:rowIdx,c:0}, e: {r:rowIdx,c:totalCols-1} });
+        rowIdx++; continue;
+      }
+
+      // Staff data rows
+      if (row.length > 2) {
+        for (var c = 0; c < row.length; c++) {
+          var addr = colNum(c) + (rowIdx+1);
+          if (!ws[addr]) continue;
+          var val = String(row[c] || '');
+          if (c === 0) { ws[addr].s = nameStyle; }
+          else if (c === 1) { ws[addr].s = roleStyle; }
+          else if (c >= row.length - 2) { ws[addr].s = hoursStyle; }
+          else if (val === 'OFF') { ws[addr].s = offStyle; }
+          else if (val === 'WO') { ws[addr].s = woStyle; }
+          else if (val === 'SL') { ws[addr].s = slStyle; }
+          else if (val === 'EM') { ws[addr].s = emStyle; }
+          else if (val === 'AL') { ws[addr].s = alStyle; }
+          else { ws[addr].s = cellStyle; }
+        }
+      }
+      rowIdx++;
+    }
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Roster ' + days[0].toLocaleDateString('en-GB',{day:'numeric',month:'short'}));
     var xlsxBase64 = XLSX.write(wb, {bookType:'xlsx', type:'base64'});
     var fileName = 'Roster_' + formatDate(days[0]) + '_to_' + formatDate(days[6]) + '.xlsx';
 
