@@ -2021,20 +2021,17 @@ async function schedSendToHR() {
 
     if (btn) btn.textContent = '📧 Sending...';
 
-    var emailRes = await fetch('https://api.resend.com/emails', {
+    // Route through Supabase Edge Function to avoid CORS
+    var emailRes = await fetch('https://zrpglswalgjbtghudmhu.supabase.co/functions/v1/send-roster', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer re_DV2gjCqH_4JmjoPbm4PLanhPRoXmkiYCs'
+        'Authorization': 'Bearer ' + SUPABASE_KEY
       },
       body: JSON.stringify({
-        from: "Roberto's Kitchen <onboarding@resend.dev>",
-        to: ['hr@robertos.ae','lmadlag@robertos.ae','dsaxena@robertos.ae'],
-        cc: ['dvalla@robertos.ae','astellacci@robertos.ae'],
-        reply_to: 'dvalla@robertos.ae',
-        subject: "Kitchen Roster: " + weekStr,
-        html: "<p>Dear HR Team,</p><p>Please find attached the kitchen roster for the week of <strong>" + weekStr + "</strong>.</p><p>The Excel file contains shift times, total hours and days worked per person.</p><p>Best regards,<br>Kitchen Management<br>Roberto's DIFC</p>",
-        attachments: [{ filename: fileName, content: xlsxBase64 }]
+        weekStr: weekStr,
+        fileName: fileName,
+        xlsxBase64: xlsxBase64
       })
     });
 
