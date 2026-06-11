@@ -13,14 +13,23 @@ const REPORTS_KEY = 'reports_module';
 const ORDER_KEY = 'order_inventory';
 const RECIPES_KEY = 'recipes';
 const SCHED_KEY = 'scheduling';
-function getToday(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-const TODAY = getToday();
+function formatDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 
-// Check every 60s: 1) if date changed (midnight), 2) if new app version available
-const APP_VERSION = 1781200000;
+// Service date: before 06:00 still belongs to the previous night's service.
+// Team marks statuses at 23:45 -> saved as Tuesday. Morning team at 07:00 -> reads Tuesday. Clean handover.
+function getServiceDate(){
+  var d = new Date();
+  if(d.getHours() < 6){ d.setDate(d.getDate() - 1); }
+  return formatDate(d);
+}
+function getToday(){ return getServiceDate(); }
+const TODAY = getServiceDate();
+
+// Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
+const APP_VERSION = 1781210000;
 setInterval(function(){
-  // Midnight check
-  if(getToday() !== TODAY){
+  // Service-day rollover at 06:00 - not at midnight
+  if(getServiceDate() !== TODAY){
     window.location.reload();
     return;
   }
