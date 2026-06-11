@@ -17,7 +17,7 @@ function getToday(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMo
 const TODAY = getToday();
 
 // Check every 60s: 1) if date changed (midnight), 2) if new app version available
-const APP_VERSION = 1781067473;
+const APP_VERSION = 1781200000;
 setInterval(function(){
   // Midnight check
   if(getToday() !== TODAY){
@@ -71,31 +71,96 @@ async function init() {
 }
 
 // â”€â”€ LOAD PREP LIST FROM SUPABASE â”€â”€
-async function loadPrepList() {
-  const { data: stationsData } = await sb.from('stations').select('*').eq('active', true).order('sort_order');
-  const { data: subsectionsData } = await sb.from('subsections').select('*').eq('active', true).order('sort_order');
-  const { data: dishesData } = await sb.from('dishes').select('*').eq('active', true).order('sort_order');
-  const { data: componentsData } = await sb.from('dish_components').select('*').eq('active', true).order('sort_order');
+const STATIONS_CACHE_KEY = 'robertos-stations-cache';
 
-  STATIONS = stationsData.map(st => ({
-    key: st.key,
-    label: st.label,
-    subsections: subsectionsData
-      .filter(ss => ss.station_key === st.key)
-      .map(ss => ({
-        key: ss.key,
-        label: ss.label,
-        dishes: dishesData
-          .filter(d => d.station_key === st.key && d.subsection_key === ss.key)
-          .map(d => ({
-            id: d.id,
-            name: d.name,
-            extra: false,
-            items: componentsData.filter(c => c.dish_id === d.id).map(c => c.name),
-            components: componentsData.filter(c => c.dish_id === d.id).map(c => ({id: c.id, name: c.name}))
-          }))
-      }))
-  }));
+function savePrepListCache(stations) {
+  try { localStorage.setItem(STATIONS_CACHE_KEY, JSON.stringify(stations)); } catch(e) {}
+}
+function loadPrepListCache() {
+  try { return JSON.parse(localStorage.getItem(STATIONS_CACHE_KEY) || 'null'); } catch(e) { return null; }
+}
+
+async function loadPrepList() {
+  try {
+    const [r1, r2, r3, r4] = await Promise.all([
+      sb.from('stations').select('*').eq('active', true).order('sort_order'),
+      sb.from('subsections').select('*').eq('active', true).order('sort_order'),
+      sb.from('dishes').select('*').eq('active', true).order('sort_order'),
+      sb.from('dish_components').select('*').eq('active', true).order('sort_order')
+    ]);
+    const stationsData   = r1.data;
+    const subsectionsData = r2.data;
+    const dishesData     = r3.data;
+    const componentsData = r4.data;
+
+    // If any query came back null/empty, do NOT wipe STATIONS — keep whatever we have
+    if (!stationsData || !subsectionsData || !dishesData || !componentsData) {
+      console.warn('[loadPrepList] One or more queries returned null — keeping existing STATIONS');
+      showPrepError('Could not reach database. Showing last known prep list.');
+      const cached = loadPrepListCache();
+      if (cached && cached.length > 0 && STATIONS.length === 0) {
+        STATIONS = cached;
+        console.log('[loadPrepList] Restored ' + STATIONS.length + ' stations from cache');
+      }
+      return;
+    }
+
+    // Build the new structure
+    const built = stationsData.map(st => ({
+      key: st.key,
+      label: st.label,
+      subsections: subsectionsData
+        .filter(ss => ss.station_key === st.key)
+        .map(ss => ({
+          key: ss.key,
+          label: ss.label,
+          dishes: dishesData
+            .filter(d => d.station_key === st.key && d.subsection_key === ss.key)
+            .map(d => ({
+              id: d.id,
+              name: d.name,
+              extra: false,
+              items: componentsData.filter(c => c.dish_id === d.id).map(c => c.name),
+              components: componentsData.filter(c => c.dish_id === d.id).map(c => ({id: c.id, name: c.name}))
+            }))
+        }))
+    }));
+
+    // Only commit if we actually got stations — never swap good data for empty
+    if (built.length === 0 && STATIONS.length > 0) {
+      console.warn('[loadPrepList] Supabase returned 0 stations — keeping existing STATIONS, not overwriting');
+      showPrepError('Database returned empty station list. Showing last known prep list.');
+      return;
+    }
+
+    STATIONS = built;
+    savePrepListCache(STATIONS);
+    hidePrepError();
+  } catch(err) {
+    console.error('[loadPrepList] Exception:', err);
+    showPrepError('Connection error. Showing last known prep list.');
+    const cached = loadPrepListCache();
+    if (cached && cached.length > 0 && STATIONS.length === 0) {
+      STATIONS = cached;
+      console.log('[loadPrepList] Exception fallback: restored ' + STATIONS.length + ' stations from cache');
+    }
+  }
+}
+
+function showPrepError(msg) {
+  let el = document.getElementById('prep-load-warning');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'prep-load-warning';
+    el.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#b45309;color:#fff;font-size:13px;text-align:center;padding:6px 12px;z-index:9999;';
+    document.body.prepend(el);
+  }
+  el.textContent = '⚠ ' + msg;
+  el.style.display = 'block';
+}
+function hidePrepError() {
+  const el = document.getElementById('prep-load-warning');
+  if (el) el.style.display = 'none';
 }
 
 // â”€â”€ LOAD TODAY'S STATUS â”€â”€
