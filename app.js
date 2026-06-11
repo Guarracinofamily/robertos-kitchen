@@ -23,10 +23,10 @@ function getServiceDate(){
   return formatDate(d);
 }
 function getToday(){ return getServiceDate(); }
-const TODAY = '2026-06-10'; // HOTFIX: show Wednesday service data for morning team
+const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1781240000;
+const APP_VERSION = 1781250000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
