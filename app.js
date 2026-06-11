@@ -1801,7 +1801,38 @@ function renderSchedWeek() {
     '</td></tr>';
   }
 
-  html += '</tbody></table>';
+  html += '</tbody>';
+
+  // Week summary row — total hours per day + grand total
+  html += '<tfoot><tr class="sch-summary-row"><td class="sum-label">Total hours</td><td></td>';
+  for (var sumDi = 0; sumDi < days.length; sumDi++) {
+    var sumDs = formatDate(days[sumDi]);
+    var dayTotal = 0;
+    schedStaff.forEach(function(s) {
+      var rr = schedRoster[schedRosterKey(s.id, sumDs)];
+      if (!rr || rr.status === 'working') {
+        var ts = rr ? formatTime(rr.shift_start) : '';
+        var te = rr ? formatTime(rr.shift_end) : '';
+        if (ts && te) dayTotal += calcHours(ts, te, rr ? formatTime(rr.shift_start2) : '', rr ? formatTime(rr.shift_end2) : '');
+      }
+    });
+    html += '<td>' + (dayTotal > 0 ? dayTotal + 'h' : '—') + '</td>';
+  }
+  // Grand total
+  var grandTotal = 0;
+  schedStaff.forEach(function(s) {
+    for (var gi = 0; gi < days.length; gi++) {
+      var rr = schedRoster[schedRosterKey(s.id, formatDate(days[gi]))];
+      if (!rr || rr.status === 'working') {
+        var ts = rr ? formatTime(rr.shift_start) : '';
+        var te = rr ? formatTime(rr.shift_end) : '';
+        if (ts && te) grandTotal += calcHours(ts, te, rr ? formatTime(rr.shift_start2) : '', rr ? formatTime(rr.shift_end2) : '');
+      }
+    }
+  });
+  html += '<td>' + (grandTotal > 0 ? grandTotal + 'h' : '—') + '</td><td>—</td><td></td></tr></tfoot>';
+
+  html += '</table>';
   document.getElementById('sch-grid-wrap').innerHTML = html;
 }
 
