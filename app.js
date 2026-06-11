@@ -23,11 +23,10 @@ function getServiceDate(){
   return formatDate(d);
 }
 function getToday(){ return getServiceDate(); }
-// HOTFIX 11/06 - load Wednesday service statuses for morning team
-const TODAY = '2026-06-10';
+const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1781220000;
+const APP_VERSION = 1781230000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -175,13 +174,66 @@ function hidePrepError() {
 
 // â”€â”€ LOAD TODAY'S STATUS â”€â”€
 async function loadTodayStatus() {
-  const { data } = await sb.from('prep_status').select('*').eq('service_date', TODAY);
-  if (data) {
-    data.forEach(row => {
-      const id = mkId(row.station_key, row.subsection_key, row.dish_name, row.component_name);
-      state[id] = row.status;
+  try {
+    const { data: todayRows } = await sb.from('prep_status').select('*').eq('service_date', TODAY);
+
+    if (todayRows && todayRows.length > 0) {
+      todayRows.forEach(row => {
+        const id = mkId(row.station_key, row.subsection_key, row.dish_name, row.component_name);
+        state[id] = row.status;
+      });
+      return;
+    }
+
+    // Today is empty — carry forward SOS and BU from previous service date
+    const prevDate = getPreviousServiceDate();
+    console.log('[loadTodayStatus] No rows for ' + TODAY + ' — checking ' + prevDate + ' for carryover');
+    const { data: prevRows } = await sb.from('prep_status').select('*').eq('service_date', prevDate);
+
+    if (!prevRows || prevRows.length === 0) return;
+
+    const toCarry = prevRows.filter(r => r.status === 'sos' || r.status === 'bu');
+    if (toCarry.length === 0) return;
+
+    console.log('[loadTodayStatus] Carrying forward ' + toCarry.length + ' items from ' + prevDate);
+
+    const newRows = toCarry.map(r => ({
+      service_date: TODAY,
+      station_key: r.station_key,
+      subsection_key: r.subsection_key,
+      dish_name: r.dish_name,
+      component_name: r.component_name,
+      status: r.status,
+      updated_at: new Date().toISOString()
+    }));
+
+    await sb.from('prep_status').upsert(newRows, {
+      onConflict: 'service_date,station_key,subsection_key,dish_name,component_name'
     });
+
+    newRows.forEach(row => {
+      state[mkId(row.station_key, row.subsection_key, row.dish_name, row.component_name)] = row.status;
+    });
+
+    showCarryoverBanner(toCarry.length, prevDate);
+
+  } catch(err) {
+    console.error('[loadTodayStatus] Error:', err);
   }
+}
+
+function getPreviousServiceDate() {
+  const d = new Date();
+  d.setDate(d.getDate() - (d.getHours() < 6 ? 2 : 1));
+  return formatDate(d);
+}
+
+function showCarryoverBanner(count, fromDate) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#410207;color:#e1d3c2;text-align:center;padding:12px 20px;z-index:9998;font-size:13px;font-family:DM Sans,sans-serif;letter-spacing:0.02em;';
+  el.innerHTML = '📋 ' + count + ' unresolved items (SOS + BU) carried forward from ' + fromDate + ' — work SOS first.';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 7000);
 }
 
 // â”€â”€ REALTIME SYNC â”€â”€
