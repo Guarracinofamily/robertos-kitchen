@@ -1352,7 +1352,7 @@ function deleteDish(stKey,ssKey,dishName,did){
   undoStack={type:'dish',stKey,ssKey,dish:removed,idx:di,savedState};
   // Sync to Supabase so all screens reflect the removal
   if(!DEV_READ_ONLY && removed.id){
-    sb.from('dishes').delete().eq('id',removed.id);
+    sb.from('dishes').delete().eq('id',removed.id).then(()=>{});
   }
   showUndo(`"${dishName}" removed`);renderTabs();renderCounter();renderContent();
 }
@@ -1368,10 +1368,10 @@ function deleteItem(id,stKey,ssKey,dishName,idx,ikey){
   if(dish.components)dish.components.splice(idx,1);
   // Sync to Supabase so all screens reflect the removal
   if(!DEV_READ_ONLY && removedComp && removedComp.id){
-    sb.from('dish_components').delete().eq('id',removedComp.id);
+    sb.from('dish_components').delete().eq('id',removedComp.id).then(()=>{});
   }
   if(dish.items.length===0){const di=ss.dishes.findIndex(d=>d.name===dishName);const rd=ss.dishes.splice(di,1)[0];undoStack={type:'dish',stKey,ssKey,dish:rd,idx:di,savedState:{}};
-    if(!DEV_READ_ONLY && rd.id)sb.from('dishes').delete().eq('id',rd.id);
+    if(!DEV_READ_ONLY && rd.id)sb.from('dishes').delete().eq('id',rd.id).then(()=>{});
   }
   else undoStack={type:'item',stKey,ssKey,dishName,itemName,idx,savedStatus};
   showUndo(`"${itemName}" removed`);renderTabs();renderCounter();renderContent();
@@ -1528,8 +1528,9 @@ async function addDish(){
     const {data:dish} = await sb.from('dishes').insert({station_key:stKey,subsection_key:ssKey,name,sort_order:ss.dishes.length+1,active:true}).select().single();
     if(dish){
       const comps=items.map((c,i)=>({dish_id:dish.id,name:c,sort_order:i+1,active:true}));
-      await sb.from('dish_components').insert(comps);
-      ss.dishes.push({id:dish.id,name,items,extra:true});
+      const {data:insertedComps}=await sb.from('dish_components').insert(comps).select();
+      const compList=(insertedComps||[]).slice().sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)).map(c=>({id:c.id,name:c.name}));
+      ss.dishes.push({id:dish.id,name,items,extra:true,components:compList});
       items.forEach(item=>{state[mkId(stKey,ssKey,name,item)]='none';});
     }
   }
