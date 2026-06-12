@@ -185,14 +185,14 @@ async function loadTodayStatus() {
       return;
     }
 
-    // Today is empty — carry forward SOS and BU from previous service date
+    // Today is empty: carry forward OK, SOS and BU from previous service date so the morning % reflects real readiness
     const prevDate = getPreviousServiceDate();
     console.log('[loadTodayStatus] No rows for ' + TODAY + ' — checking ' + prevDate + ' for carryover');
     const { data: prevRows } = await sb.from('prep_status').select('*').eq('service_date', prevDate);
 
     if (!prevRows || prevRows.length === 0) return;
 
-    const toCarry = prevRows.filter(r => r.status === 'sos' || r.status === 'bu');
+    const toCarry = prevRows.filter(r => r.status === 'sos' || r.status === 'bu' || r.status === 'ok');
     if (toCarry.length === 0) return;
 
     console.log('[loadTodayStatus] Carrying forward ' + toCarry.length + ' items from ' + prevDate);
@@ -215,7 +215,9 @@ async function loadTodayStatus() {
       state[mkId(row.station_key, row.subsection_key, row.dish_name, row.component_name)] = row.status;
     });
 
-    showCarryoverBanner(toCarry.length, prevDate);
+    const urgentCount = toCarry.filter(r => r.status === 'sos' || r.status === 'bu').length;
+    const okCount = toCarry.length - urgentCount;
+    showCarryoverBanner(toCarry.length, prevDate, okCount, urgentCount);
 
   } catch(err) {
     console.error('[loadTodayStatus] Error:', err);
@@ -228,10 +230,13 @@ function getPreviousServiceDate() {
   return formatDate(d);
 }
 
-function showCarryoverBanner(count, fromDate) {
+function showCarryoverBanner(count, fromDate, okCount, urgentCount) {
   const el = document.createElement('div');
   el.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#410207;color:#e1d3c2;text-align:center;padding:12px 20px;z-index:9998;font-size:13px;font-family:DM Sans,sans-serif;letter-spacing:0.02em;';
-  el.innerHTML = '📋 ' + count + ' unresolved items (SOS + BU) carried forward from ' + fromDate + ' — work SOS first.';
+  var parts = [];
+  if (okCount) parts.push(okCount + ' still OK from yesterday');
+  if (urgentCount) parts.push(urgentCount + ' unresolved (SOS + BU) \u2014 work SOS first');
+  el.innerHTML = '\ud83d\udccb Carried from ' + fromDate + ': ' + parts.join(' \u00b7 ');
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 7000);
 }
@@ -425,7 +430,10 @@ function currentReportRows(){
   return [...prepRows(),...checklistRows()];
 }
 function criticalRows(){
-  return currentReportRows().filter(r=>['sos','bu','review','discard'].includes(r.status));
+  const order={sos:0,discard:0,review:1};
+  return currentReportRows()
+    .filter(r=>['sos','review','discard'].includes(r.status))
+    .sort((a,b)=>order[a.status]-order[b.status]);
 }
 
 // â”€â”€ TABS â”€â”€
@@ -1186,12 +1194,14 @@ function renderContent() {
       const eS=st.key.replace(/'/g,"\\'"),eSS=ss.key.replace(/'/g,"\\'"),eDN=dish.name.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
       const did='dc-'+st.key+'-'+ss.key+'-'+dish.name.replace(/[^a-z0-9]/gi,'_');
       const mid='mv-'+st.key+'-'+ss.key+'-'+dish.name.replace(/[^a-z0-9]/gi,'_');
+      const apid='ap-'+st.key+'-'+ss.key+'-'+dish.name.replace(/[^a-z0-9]/gi,'_');
       const stationOptions=STATIONS.map(x=>`<option value="${x.key}"${x.key===st.key?' selected':''}>${x.label}</option>`).join('');
       const subsectionOptions=st.subsections.map(x=>`<option value="${x.key}"${x.key===ss.key?' selected':''}>${x.label}</option>`).join('');
       return `<div class="dish-block" id="${dk}">
         <div class="dish-label">
           <span class="dish-name-text">${dish.name}${dish.extra?'<span class="dish-extra-tag"> · EXTRA</span>':''}</span>
           <div class="dish-actions" id="${mid}-actions">
+            <button class="dish-addprep-btn" onclick="showAddPrepPanel('${apid}')">+ Add prep</button>
             <button class="dish-move-btn" onclick="showMovePanel('${mid}','${did}')">Move dish</button>
             <button class="dish-delete-btn" id="${did}-btn" onclick="showDishConfirm('${did}','${eS}','${eSS}','${eDN}')">Remove dish</button>
             <div class="dish-confirm-row" id="${did}-confirm">
@@ -1200,6 +1210,13 @@ function renderContent() {
               <button class="dish-confirm-no" onclick="cancelDishConfirm('${did}')">Cancel</button>
             </div>
           </div>
+        </div>
+        <div class="dish-move-panel" id="${apid}">
+          <span class="dish-move-label">New prep item</span>
+          <input type="text" class="addprep-inp" id="${apid}-inp" placeholder="e.g. Basil oil" onkeydown="if(event.key==='Enter')addPrepItem('${eS}','${eSS}','${eDN}','${apid}');if(event.key==='Escape')cancelAddPrepPanel('${apid}')" />
+          <button class="dish-move-yes" onclick="addPrepItem('${eS}','${eSS}','${eDN}','${apid}')">Add</button>
+          <button class="dish-move-no" onclick="cancelAddPrepPanel('${apid}')">Cancel</button>
+          <div class="dish-move-note" id="${apid}-note"></div>
         </div>
         <div class="dish-move-panel" id="${mid}">
           <span class="dish-move-label">Move to</span>
@@ -1339,6 +1356,45 @@ async function moveDish(fromStKey,fromSsKey,dishName,mid){
   activeFilter=null;
   switchStation(toStKey);
   showUndo(`"${dish.name}" moved to ${toSt.label} / ${toSs.label}`);
+}
+
+
+// ADD PREP ITEM
+function showAddPrepPanel(apid){
+  document.querySelectorAll('.dish-move-panel.visible').forEach(p=>p.classList.remove('visible'));
+  const el=document.getElementById(apid);
+  if(el){el.classList.add('visible');const inp=document.getElementById(apid+'-inp');if(inp){inp.value='';setTimeout(()=>inp.focus(),50);}}
+}
+function cancelAddPrepPanel(apid){
+  const el=document.getElementById(apid);
+  if(el)el.classList.remove('visible');
+}
+async function addPrepItem(stKey,ssKey,dishName,apid){
+  const inp=document.getElementById(apid+'-inp');
+  const note=document.getElementById(apid+'-note');
+  const name=inp?inp.value.trim():'';
+  if(!name){if(note){note.style.display='block';note.textContent='Enter a prep name.';}return;}
+  const st=STATIONS.find(s=>s.key===stKey);if(!st)return;
+  const ss=st.subsections.find(s=>s.key===ssKey);if(!ss)return;
+  const dish=ss.dishes.find(d=>d.name===dishName);if(!dish)return;
+  if(dish.items.some(i=>i.toLowerCase()===name.toLowerCase())){
+    if(note){note.style.display='block';note.textContent='"'+name+'" is already in this dish.';}
+    return;
+  }
+  cancelAddPrepPanel(apid);
+  if(DEV_READ_ONLY){
+    dish.items.push(name);
+    if(dish.components)dish.components.push({id:null,name});
+    state[mkId(stKey,ssKey,dishName,name)]='none';
+  }else{
+    const {data:comp,error}=await sb.from('dish_components').insert({dish_id:dish.id,name,sort_order:dish.items.length+1,active:true}).select().single();
+    if(error||!comp){console.error('Add prep error:',error);showUndo('Could not save "'+name+'" - try again');return;}
+    dish.items.push(name);
+    if(dish.components)dish.components.push({id:comp.id,name:comp.name});
+    state[mkId(stKey,ssKey,dishName,name)]='none';
+  }
+  renderTabs();renderCounter();renderContent();
+  showUndo('"'+name+'" added to '+dishName);
 }
 
 // â”€â”€ DELETE DISH â”€â”€
