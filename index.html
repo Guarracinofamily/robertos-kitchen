@@ -576,6 +576,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     <button class="home-tile secondary" onclick="openOrderInventory()"><span class="home-code">ORD</span><span><span class="home-name">Order Inventory</span><span class="home-meta">Quantities, prices, totals</span></span></button>
     <button class="home-tile secondary" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Search dishes, ingredients, method</span></span></button>
     <button class="home-tile" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
+    <button class="home-tile" type="button" onclick="openClosingReport()"><span class="home-code">CLO</span><span><span class="home-name">Closing Report</span><span class="home-meta">End of day report to Francesco</span></span></button>
   </div>
 </div>
 
@@ -613,6 +614,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="order-view" class="ops-view" style="display:none"></div>
 <div id="recipes-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
+<div id="closing-view" class="ops-view" style="display:none"></div>
 <div class="content" id="content"></div>
 
 <div id="add-section-wrap" class="add-section">
@@ -641,9 +643,10 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="order-items.js?v=1781248110"></script>
-<script src="recipes.js?v=1781248110"></script>
-<script src="app.js?v=1781248110"></script>
+<script src="order-items.js?v=1781279899"></script>
+<script src="recipes.js?v=1781279899"></script>
+<script src="closing-report.js?v=1781279899"></script>
+<script src="app.js?v=1781279899"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
