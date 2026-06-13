@@ -479,7 +479,18 @@ async function teamSubmit() {
   }
   var btn=document.getElementById('team-submit-btn'); if(btn){btn.disabled=true;btn.textContent=Tui('sending');}
   var row = { staff_id:(teamCurrent._virtual?null:teamCurrent.id), staff_name:teamCurrent.name, designation:teamCurrent.designation||null, station_key:teamCurrent.station_key||null, answers:teamAnswers, lang:teamLang, submitted_at:new Date().toISOString() };
-  try { var res=await sb.from('team_survey').insert(row); if(res.error)throw res.error; teamMode='thanks'; teamRender(); }
+  try {
+    var res=await sb.from('team_survey').insert(row);
+    if(res.error){
+      // If the optional 'lang' column doesn't exist, retry without it rather than blocking the person
+      if((res.error.message||'').toLowerCase().indexOf('lang')!==-1 || (res.error.code||'')==='PGRST204'){
+        var row2={}; Object.keys(row).forEach(function(k){ if(k!=='lang')row2[k]=row[k]; });
+        var res2=await sb.from('team_survey').insert(row2);
+        if(res2.error)throw res2.error;
+      } else { throw res.error; }
+    }
+    teamMode='thanks'; teamRender();
+  }
   catch(e){ if(btn){btn.disabled=false;btn.textContent=Tui('send');} alert('Could not send — please try again.\n'+(e.message||'')); }
 }
 
