@@ -702,6 +702,42 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .team-deadline.soon{background:rgba(202,162,58,.18);color:#8a6d18}
 .team-deadline.today{background:rgba(255,59,3,.15);color:#c43500}
 .team-deadline.overdue{background:var(--vino);color:var(--cream)}
+/* AI assistant panel */
+.ai-panel{background:#fff;border:1px solid var(--sabbia-dark);border-radius:12px;padding:14px;margin-bottom:16px}
+.ai-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.ai-title{font-family:var(--font-serif);font-size:15px;color:var(--vino);font-weight:600}
+.ai-names-toggle{background:var(--sabbia-light);border:1px solid var(--sabbia-dark);color:var(--ink);font-size:11px;padding:5px 10px;border-radius:20px;cursor:pointer;letter-spacing:.3px}
+.ai-names-toggle.on{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.ai-quick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.ai-qbtn{background:var(--sabbia-light);border:1px solid var(--sabbia-dark);color:var(--vino);font-size:12px;padding:7px 11px;border-radius:8px;cursor:pointer;text-align:left;transition:.12s}
+.ai-qbtn:hover{background:var(--vino);color:var(--cream);border-color:var(--vino)}
+.ai-chat{max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.ai-chat:empty{display:none}
+.ai-msg{padding:10px 12px;border-radius:10px;font-size:13.5px;line-height:1.55;max-width:92%}
+.ai-user{align-self:flex-end;background:var(--vino);color:var(--cream)}
+.ai-assistant{align-self:flex-start;background:var(--sabbia-light);color:var(--ink);border:1px solid var(--sabbia-dark)}
+.ai-thinking{opacity:.6;font-style:italic}
+.ai-inputbar{display:flex;gap:8px;align-items:flex-end}
+.ai-input{flex:1;border:1.5px solid var(--sabbia-dark);border-radius:9px;padding:10px;font-family:var(--font-sans);font-size:14px;color:var(--ink);background:var(--cream);resize:none;max-height:120px}
+.ai-input:focus{outline:none;border-color:var(--vino)}
+.ai-send{background:var(--vino);color:var(--cream);border:none;border-radius:9px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer}
+.ai-send:hover{background:var(--vino-light)}
+.ai-foot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:10px}
+.ai-clear{background:none;border:none;color:var(--vino-light);font-size:11px;cursor:pointer;text-decoration:underline;opacity:.7}
+.ai-note{font-size:10.5px;color:var(--ink);opacity:.5;text-align:right;line-height:1.4}
+.ta-mode{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;vertical-align:middle;font-family:var(--font-sans)}
+.ta-mode.anon{background:rgba(75,81,40,.15);color:var(--oliva)}
+.ta-mode.named{background:rgba(255,59,3,.12);color:var(--pomodoro)}
+.ai-anon-tag{font-size:11px;padding:5px 10px;border-radius:20px;background:rgba(75,81,40,.15);color:var(--oliva);font-weight:600}
+.ai-msg .ai-h{font-weight:700;color:var(--vino);margin:8px 0 3px;font-size:14px}
+.ai-msg .ai-ul{margin:4px 0 4px 2px;padding:0;list-style:none}
+.ai-msg .ai-ul li{position:relative;padding-left:14px;margin:3px 0}
+.ai-msg .ai-ul li:before{content:"\2013";position:absolute;left:0;color:var(--oliva)}
+.ai-msg .ai-quote{border-left:3px solid var(--oliva);padding:2px 0 2px 10px;margin:5px 0;font-style:italic;opacity:.85}
+.ai-msg .ai-row{padding:2px 0;font-size:13px}
+.ai-msg .ai-sp{height:7px}
+.ai-msg code{background:rgba(75,81,40,.12);padding:1px 5px;border-radius:4px;font-size:12px}
+
 /* ── Chairman Dashboard ── */
 .cd-open-btn{width:100%;margin:0 0 18px;background:var(--vino);color:var(--cream);border:none;border-radius:10px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:.3px}
 .cd-open-btn:hover{background:var(--vino-light)}
@@ -926,11 +962,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="order-items.js?v=1781373008"></script>
-<script src="recipes.js?v=1781373008"></script>
-<script src="closing-report.js?v=1781373008"></script>
-<script src="team.js?v=1781373008"></script>
-<script src="app.js?v=1781373008"></script>
+<script src="order-items.js?v=1781373327"></script>
+<script src="recipes.js?v=1781373327"></script>
+<script src="closing-report.js?v=1781373327"></script>
+<script src="team.js?v=1781373327"></script>
+<script src="app.js?v=1781373327"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
