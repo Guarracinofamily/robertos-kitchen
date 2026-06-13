@@ -880,9 +880,9 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
   <button type="button" class="home-toggle" id="ops-toggle" onclick="toggleHomePanel('ops')">
     <span class="home-toggle-label">Daily Operations</span>
-    <span class="home-toggle-right"><span class="home-toggle-hint">Order · Recipes · Reports · Roster</span><span class="home-chev" id="ops-chev">&#9662;</span></span>
+    <span class="home-toggle-right"><span class="home-toggle-hint">Order · Recipes · Reports · Roster</span><span class="home-chev open" id="ops-chev">&#9662;</span></span>
   </button>
-  <div class="home-grid home-grid-ops home-panel" id="ops-panel" style="display:none">
+  <div class="home-grid home-grid-ops home-panel" id="ops-panel" style="display:grid">
     <button class="home-tile compact" onclick="openOrderInventory()"><span class="home-code">ORD</span><span><span class="home-name">Order Inventory</span><span class="home-meta">Quantities, prices, totals</span></span></button>
     <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Search dishes, method</span></span></button>
     <button class="home-tile compact" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
@@ -891,9 +891,9 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
   <button type="button" class="home-toggle mgmt-toggle" id="mgmt-toggle" onclick="toggleHomePanel('mgmt')">
     <span class="home-toggle-label">Management</span>
-    <span class="home-toggle-right"><span class="home-toggle-hint">Closing · Team</span><span class="home-chev" id="mgmt-chev">&#9662;</span></span>
+    <span class="home-toggle-right"><span class="home-toggle-hint">Closing · Team</span><span class="home-chev open" id="mgmt-chev">&#9662;</span></span>
   </button>
-  <div class="home-grid home-grid-mgmt home-panel" id="mgmt-panel" style="display:none">
+  <div class="home-grid home-grid-mgmt home-panel" id="mgmt-panel" style="display:grid">
     <button class="home-tile compact mgmt" type="button" onclick="openClosingReport()"><span class="home-code">CLO</span><span><span class="home-name">Closing Report</span><span class="home-meta">End of day report to Francesco</span></span></button>
     <button class="home-tile compact mgmt" type="button" onclick="openTeam()"><span class="home-code">TEAM</span><span><span class="home-name">Get to Know Us</span><span class="home-meta">Quick team survey</span></span></button>
   </div>
@@ -962,11 +962,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="order-items.js?v=1781373327"></script>
-<script src="recipes.js?v=1781373327"></script>
-<script src="closing-report.js?v=1781373327"></script>
-<script src="team.js?v=1781373327"></script>
-<script src="app.js?v=1781373327"></script>
+<script src="order-items.js?v=1781373525"></script>
+<script src="recipes.js?v=1781373525"></script>
+<script src="closing-report.js?v=1781373525"></script>
+<script src="team.js?v=1781373525"></script>
+<script src="app.js?v=1781373525"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
