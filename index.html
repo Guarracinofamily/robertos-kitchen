@@ -398,16 +398,16 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .sch-shift{border-radius:3px;padding:3px 5px;font-size:11px;line-height:1.3;transition:box-shadow .1s}
 .sch-shift.working{background:#f0ebe3;color:var(--ink);border:1px solid var(--sabbia-dark)}
 /* COSEC attendance (face recognition) */
-.sch-emp-id{display:block;font-size:8px;color:#b9ab9c;cursor:pointer;margin-top:2px;letter-spacing:1.2px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1}
+.sch-emp-id{display:block;font-size:9px;color:#b9ab9c;cursor:pointer;margin-top:2px;letter-spacing:1.2px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1}
 .sch-emp-id:hover{color:var(--vino)}
 .sch-shift.actual{background:#e8f0e9;color:#2f5233;border:1px solid #a9c9b0;font-weight:600}
 .sch-shift.actual-live{background:#eaf2ec;color:#3a6b47;border:1px dashed #8fbf9e}
 .sch-shift.actual-open-flag{background:#fbe9e7;color:#a8342a;border:1px solid #e8a89f;font-weight:600;cursor:pointer}
 .sch-shift.actual-open-flag:hover{box-shadow:0 0 0 2px #c0392b}
 .sch-shift.actual-absent{background:#fdf3e3;color:#9a6a1e;border:1px solid #e6c98f}
-.sch-actual-tag{display:block;font-size:8px;letter-spacing:.4px;opacity:.75;margin-top:1px;text-transform:uppercase;font-weight:500}
-.sch-actual-open{display:block;font-size:8px;letter-spacing:.4px;opacity:.7;font-style:italic}
-.sch-actual-close{display:block;font-size:8px;letter-spacing:.4px;font-weight:600;margin-top:1px}
+.sch-actual-tag{display:block;font-size:9px;letter-spacing:.4px;opacity:.75;margin-top:1px;text-transform:uppercase;font-weight:500}
+.sch-actual-open{display:block;font-size:9px;letter-spacing:.4px;opacity:.7;font-style:italic}
+.sch-actual-close{display:block;font-size:9px;letter-spacing:.4px;font-weight:600;margin-top:1px}
 .sch-att{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:500;letter-spacing:.3px;font-variant-numeric:tabular-nums}
 .sch-att::before{content:'';width:5px;height:5px;border-radius:50%;flex-shrink:0}
 .sch-att-in{color:#4a7c59}
@@ -963,11 +963,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="order-items.js?v=1781374094"></script>
-<script src="recipes.js?v=1781374094"></script>
-<script src="closing-report.js?v=1781374094"></script>
-<script src="team.js?v=1781374094"></script>
-<script src="app.js?v=1781374094"></script>
+<script src="order-items.js?v=1781374390"></script>
+<script src="recipes.js?v=1781374390"></script>
+<script src="closing-report.js?v=1781374390"></script>
+<script src="team.js?v=1781374390"></script>
+<script src="app.js?v=1781374390"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
@@ -998,7 +998,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
   <!-- Weekly grid -->
   <div id="sch-week-view" style="flex:1;overflow:auto">
-    <div id="sch-grid-wrap"></div>
+    <div id="sch-grid-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch"></div>
   </div>
 
   <!-- Day view -->
