@@ -1596,15 +1596,6 @@ async function addDish(){
   if(activeStation!==stKey)switchStation(stKey);else{renderTabs();renderCounter();renderContent();}
 }
 
-async function resetAll(){
-  Object.keys(state).forEach(k=>state[k]='none');
-  activeFilter=null;
-  if (!DEV_READ_ONLY) await sb.from('prep_status').delete().eq('service_date',TODAY);
-  renderTabs();
-  if(activeStation===PASS_KEY)renderPassView();
-  else{renderCounter();renderContent();}
-}
-
 function setDate(){
   const d=new Date();
   const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -1662,7 +1653,6 @@ function getMonday(d) {
   dt.setDate(dt.getDate() + (day === 0 ? -6 : 1 - day));
   dt.setHours(12,0,0,0); return dt;
 }
-function formatDate(d) { var y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0'); return y+'-'+m+'-'+dd; }
 function addDays(d, n) { var dt = new Date(d); dt.setDate(dt.getDate() + n); dt.setHours(12,0,0,0); return dt; }
 function formatTime(t) { return t ? String(t).substring(0,5) : ''; }
 function calcHours(start, end, start2, end2) {
