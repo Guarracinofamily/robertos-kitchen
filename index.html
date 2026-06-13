@@ -345,7 +345,10 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .recipe-empty{font-size:13px;color:var(--vino-light);font-style:italic;padding:14px;text-align:center;font-family:var(--font-serif)}
 
 @media(max-width:700px){
-  .home-grid{grid-template-columns:1fr}.home-tile{min-height:125px}.home-title{font-size:30px}
+  .home-grid-service{grid-template-columns:1fr}.home-tile{min-height:125px}.home-title{font-size:30px}
+  .home-grid-ops{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .home-tile.compact{min-height:96px}
+  .home-toggle-hint{display:none}
   .ops-grid,.ops-two,.report-filter-grid,.order-filter-grid,.recipe-layout,.recipe-detail-body{grid-template-columns:1fr}
   .order-row,.report-row{grid-template-columns:1fr;gap:4px}
 }
@@ -536,6 +539,142 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 /* Schedule week summary row */
 .sch-summary-row td{background:var(--vino);color:var(--cream);font-size:12px;font-weight:700;padding:8px 6px;text-align:center;border:1px solid rgba(255,255,255,.15)}
 .sch-summary-row td.sum-label{text-align:left;padding-left:12px;letter-spacing:1px;text-transform:uppercase;font-size:10px}
+
+/* ── team survey + collapsible home (ported from dev) ── */
+.home-group-label{font-family:var(--font-serif);font-size:11px;letter-spacing:2.5px;text-transform:uppercase;color:var(--vino-light);margin:22px 0 10px;padding-bottom:5px;border-bottom:1px solid var(--sabbia-dark)}
+.home-group-label:first-of-type{margin-top:4px}
+.home-grid-ops{grid-template-columns:repeat(4,minmax(0,1fr))}
+.home-grid-mgmt{grid-template-columns:repeat(2,minmax(0,1fr));max-width:440px}
+.home-tile.compact{min-height:84px;padding:13px;border-radius:6px}
+.home-tile.compact .home-name{font-size:15px}
+.home-tile.compact .home-code{font-size:9px;padding:3px 6px}
+.home-tile.compact .home-meta{font-size:10px;margin-top:3px}
+.home-tile.mgmt{background:var(--sabbia)}
+.home-toggle{width:100%;margin-top:22px;background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:6px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;color:var(--vino);font-family:var(--font-sans);transition:border-color .12s}
+.home-toggle:hover{border-color:var(--vino)}
+.home-toggle.mgmt-toggle{background:var(--sabbia)}
+.home-toggle-label{font-family:var(--font-serif);font-size:14px;letter-spacing:1px;text-transform:uppercase}
+.home-toggle-right{display:flex;align-items:center;gap:10px}
+.home-toggle-hint{font-size:10px;color:var(--vino-light);letter-spacing:1px}
+.home-chev{transition:transform .2s;font-size:13px}
+.home-chev.open{transform:rotate(180deg)}
+.home-panel{margin-top:12px}
+  .home-grid-ops{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .home-tile.compact{min-height:96px}
+  .home-toggle-hint{display:none}
+.team-wrap{max-width:680px;margin:0 auto;padding:20px 18px 60px}
+.team-head{margin-bottom:18px}
+.team-title{font-family:var(--font-serif);font-size:24px;color:var(--vino);font-weight:600;position:relative}
+.team-corner{position:absolute;top:-8px;right:-8px;width:44px;height:44px;cursor:default}
+.team-langbar{margin:0 0 18px}
+.team-langlbl{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--vino-light);margin-bottom:8px}
+.team-langs{display:flex;flex-wrap:wrap;gap:8px}
+.team-lang{background:var(--sabbia-light);border:1.5px solid var(--sabbia-dark);border-radius:8px;padding:9px 14px;font-size:14px;color:var(--ink);cursor:pointer;transition:.12s}
+.team-lang:hover{border-color:var(--vino-light)}
+.team-lang.active{background:var(--vino);border-color:var(--vino);color:var(--cream);font-weight:600}
+.team-progress-strip,.ta-completion{background:#fff;border:1px solid var(--sabbia-dark);border-radius:10px;padding:14px;margin-bottom:18px}
+.ta-completion{margin-bottom:14px}
+.tps-top{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+.tps-pct{font-family:var(--font-serif);font-size:26px;font-weight:700;color:var(--vino)}
+.tps-count{font-size:13px;color:var(--ink);opacity:.7}
+.tps-bar{height:10px;background:var(--sabbia-light);border-radius:6px;overflow:hidden}
+.tps-fill{display:block;height:100%;background:var(--oliva);border-radius:6px;transition:width .4s}
+.tps-dates{display:flex;justify-content:space-between;font-size:11px;color:var(--vino-light);margin-top:7px;letter-spacing:.3px}
+.team-admin-link{margin:26px 0 8px;text-align:center}
+.team-admin-link button{background:none;border:1px solid var(--sabbia-dark);color:var(--vino-light);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;padding:9px 18px;border-radius:6px;cursor:pointer;opacity:.6}
+.team-admin-link button:hover{opacity:1;border-color:var(--vino)}
+.team-name-btn.is-done{opacity:.55}
+.tn-check{color:var(--oliva);font-weight:700;margin-left:4px}
+.team-sub{font-size:14px;color:var(--ink);opacity:.75;margin-top:6px;line-height:1.5}
+.team-back{background:none;border:none;color:var(--vino);font-size:13px;cursor:pointer;padding:0 0 10px;letter-spacing:.5px}
+.team-station{font-family:var(--font-serif);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--vino-light);margin:22px 0 10px;border-bottom:1px solid var(--sabbia-dark);padding-bottom:6px}
+.team-names{display:flex;flex-direction:column;gap:8px}
+.team-name-btn{display:flex;justify-content:space-between;align-items:center;background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:10px;padding:14px 16px;cursor:pointer;text-align:left;transition:.15s}
+.team-name-btn:hover{background:#fff;border-color:var(--vino)}
+.tn-name{font-size:16px;color:var(--ink);font-weight:600}
+.tn-role{font-size:12px;color:var(--ink);opacity:.6}
+.team-empty{padding:24px;text-align:center;color:var(--ink);opacity:.6;font-size:14px}
+.team-admin-link{margin-top:36px;text-align:center}
+.team-admin-link button{background:none;border:1px solid var(--sabbia-dark);color:var(--vino-light);font-size:11px;letter-spacing:1px;text-transform:uppercase;padding:8px 16px;border-radius:6px;cursor:pointer;opacity:.6}
+.team-admin-link button:hover{opacity:1}
+.team-q{background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:12px;padding:16px;margin-bottom:14px;transition:border-color .3s,box-shadow .3s}
+.team-q-missing{border-color:var(--pomodoro);box-shadow:0 0 0 3px rgba(255,59,3,.18)}
+.team-q-num{font-size:10px;letter-spacing:1.5px;color:var(--vino-light);opacity:.7;margin-bottom:6px}
+.team-q-text{font-size:16px;color:var(--ink);font-weight:600;margin-bottom:14px;line-height:1.4}
+.team-opts{display:flex;flex-direction:column;gap:8px}
+.team-opt{text-align:left;background:#fff;border:1.5px solid var(--sabbia-dark);border-radius:9px;padding:12px 14px;font-size:14px;color:var(--ink);cursor:pointer;transition:.12s}
+.team-opt:hover{border-color:var(--vino-light)}
+.team-opt.selected{background:var(--vino);border-color:var(--vino);color:var(--cream);font-weight:600}
+.team-scale{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.team-scale-lbl{font-size:11px;color:var(--ink);opacity:.6;flex:1;min-width:70px}
+.team-scale-lbl:last-child{text-align:right}
+.team-scale-btn{width:42px;height:42px;border-radius:50%;border:1.5px solid var(--sabbia-dark);background:#fff;color:var(--ink);font-size:15px;font-weight:600;cursor:pointer;transition:.12s}
+.team-scale-btn:hover{border-color:var(--vino-light)}
+.team-scale-btn.selected{background:var(--vino);border-color:var(--vino);color:var(--cream)}
+.team-text{width:100%;box-sizing:border-box;min-height:90px;border:1.5px solid var(--sabbia-dark);border-radius:9px;padding:12px;font-family:var(--font-sans);font-size:14px;color:var(--ink);background:#fff;resize:vertical}
+.team-text:focus{outline:none;border-color:var(--vino)}
+.team-submit-wrap{position:sticky;bottom:0;background:linear-gradient(transparent,var(--sabbia) 30%);padding:18px 0 8px;margin-top:10px;text-align:center}
+.team-progress{font-size:12px;color:var(--vino-light);margin-bottom:8px}
+.team-submit{background:var(--sabbia-dark);color:var(--ink);border:none;border-radius:10px;padding:15px 0;width:100%;font-size:16px;font-weight:600;cursor:pointer;letter-spacing:.5px;transition:.15s;opacity:.7}
+.team-submit.ready{background:var(--vino);color:var(--cream);opacity:1}
+.team-submit:disabled{opacity:.5;cursor:default}
+.team-thanks{text-align:center;padding-top:60px}
+.team-thanks-tick{width:64px;height:64px;border-radius:50%;background:var(--oliva);color:#fff;font-size:34px;display:flex;align-items:center;justify-content:center;margin:0 auto 20px}
+.team-thanks .team-submit{max-width:200px;margin:24px auto 0}
+.team-admin-status{display:flex;flex-direction:column;gap:5px}
+.team-status-row{display:flex;justify-content:space-between;font-size:13px;padding:8px 12px;border-radius:6px}
+.team-status-row.is-done{background:rgba(75,81,40,.12);color:var(--oliva)}
+.team-status-row.is-pending{background:var(--sabbia-light);color:var(--ink);opacity:.6}
+.team-resp{background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:10px;padding:14px;margin-bottom:12px}
+.team-resp-name{font-size:15px;font-weight:600;color:var(--vino);margin-bottom:10px}
+.team-resp-name span{font-weight:400;font-size:12px;opacity:.6;color:var(--ink)}
+.team-resp-q{font-size:12px;color:var(--vino-light);margin-top:8px}
+.team-resp-a{font-size:14px;color:var(--ink);font-weight:500}
+.ta-overview{background:#fff;border:1px solid var(--sabbia-dark);border-radius:12px;padding:16px;margin-bottom:8px}
+.ta-section-title{font-family:var(--font-serif);font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--vino);margin-bottom:10px}
+.ta-bar-row{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink);margin-bottom:7px}
+.ta-bar-row>span:first-child{flex:0 0 88px}
+.ta-bar{flex:1;height:9px;background:var(--sabbia-light);border-radius:5px;overflow:hidden}
+.ta-bar-fill{display:block;height:100%;border-radius:5px}
+.ta-bar-fill.hi{background:var(--oliva)} .ta-bar-fill.mid{background:#caa23a} .ta-bar-fill.lo{background:var(--pomodoro)}
+.ta-val{flex:0 0 28px;text-align:right;font-weight:600;font-size:12px}
+.ta-na{font-size:11px;opacity:.5}
+.ta-narrative{margin-top:12px;border-top:1px solid var(--sabbia-light);padding-top:12px}
+.ta-line{font-size:13px;color:var(--ink);line-height:1.6;margin-bottom:3px}
+.ta-quote{font-size:13px;color:var(--ink);font-style:italic;background:var(--sabbia-light);border-left:3px solid var(--vino-light);padding:8px 12px;border-radius:0 6px 6px 0;margin-bottom:6px}
+.ta-quote span{font-style:normal;opacity:.55;font-size:11px}
+.ta-person{background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-radius:10px;padding:14px;margin-bottom:12px}
+.ta-person-name{font-size:15px;font-weight:600;color:var(--vino);margin-bottom:10px}
+.ta-person-name span{font-weight:400;font-size:12px;opacity:.6;color:var(--ink)}
+.ta-bars{margin-bottom:10px}
+.ta-flags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.ta-flag{font-size:11px;padding:4px 9px;border-radius:20px;font-weight:600}
+.ta-flag em{font-style:normal;opacity:.7;font-weight:400;font-size:10px;text-transform:uppercase}
+.ta-flag.lv-strong{background:rgba(255,59,3,.15);color:var(--pomodoro)}
+.ta-flag.lv-soft{background:rgba(202,162,58,.18);color:#8a6d18}
+.ta-flag.lv-good{background:rgba(75,81,40,.15);color:var(--oliva)}
+.ta-flag-notes{font-size:11px;color:var(--ink);opacity:.7;line-height:1.6;margin-bottom:8px}
+.ta-said{font-size:13px;color:var(--ink);background:#fff;border-radius:6px;padding:8px 10px;margin-top:6px;line-height:1.4}
+.ta-said b{color:var(--vino)}
+.ta-headline{font-size:14px;line-height:1.6;color:var(--ink);background:var(--sabbia-light);border-radius:8px;padding:12px 14px;margin-top:4px}
+.ta-avgrow{margin-bottom:2px}
+.ta-attn{display:flex;flex-direction:column;gap:8px}
+.ta-attn-row{border-radius:8px;padding:11px 13px;font-size:13px;line-height:1.5}
+.ta-attn-row.hi{background:rgba(255,59,3,.12)} .ta-attn-row.hi b{color:var(--pomodoro)}
+.ta-attn-row.mid{background:rgba(202,162,58,.16)} .ta-attn-row.mid b{color:#8a6d18}
+.ta-attn-row.good{background:rgba(75,81,40,.14)} .ta-attn-row.good b{color:var(--oliva)}
+.ta-section-card{background:#fff;border:1px solid var(--sabbia-dark);border-radius:10px;padding:13px 14px;margin-bottom:10px}
+.ta-section-head{font-family:var(--font-serif);font-size:15px;color:var(--vino);margin-bottom:9px}
+.ta-section-head span{font-size:11px;opacity:.55;font-family:var(--font-sans)}
+.ta-secdiv{font-family:var(--font-serif);font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:var(--vino);margin:16px 0 8px;opacity:.85}
+.ta-oneline{font-size:14px;line-height:1.5;color:var(--ink);font-weight:500;background:#fff;border-left:3px solid var(--vino);border-radius:0 6px 6px 0;padding:9px 12px;margin-bottom:12px}
+.ta-dim{margin-bottom:10px}
+.ta-dim-top{display:flex;justify-content:space-between;align-items:baseline;font-size:13px}
+.ta-dim-name{font-weight:600;color:var(--ink)}
+.ta-dim-word{font-weight:700;font-size:12px;color:var(--vino-light)}
+.ta-dim .ta-bar-row{margin:4px 0 3px}
+.ta-dim-exp{font-size:12px;line-height:1.5;color:var(--ink);opacity:.8}
+.ta-footer{font-size:12px;opacity:.6;line-height:1.5;border-top:1px solid var(--sabbia-dark);padding-top:12px;margin-top:18px}
 </style>
 </head>
 <body>
@@ -568,15 +707,32 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="home-view" class="home-view">
   <div class="home-title">Kitchen App</div>
   <div class="home-subtitle">Choose your work area</div>
-  <div class="home-grid">
+
+  <div class="home-group-label">During Service</div>
+  <div class="home-grid home-grid-service">
     <button class="home-tile primary" onclick="openPrep()"><span class="home-code">PREP</span><span><span class="home-name">Prep List</span><span class="home-meta">Stations, status, dish moves</span></span></button>
     <button class="home-tile secondary" onclick="openChecklist()"><span class="home-code">CHK</span><span><span class="home-name">Chef Checklist</span><span class="home-meta">OK, To check, Discard</span></span></button>
     <button class="home-tile secondary" onclick="openDashboard()"><span class="home-code">DASH</span><span><span class="home-name">Dashboard</span><span class="home-meta">Live readiness and critical items</span></span></button>
-    <button class="home-tile secondary" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
-    <button class="home-tile secondary" onclick="openOrderInventory()"><span class="home-code">ORD</span><span><span class="home-name">Order Inventory</span><span class="home-meta">Quantities, prices, totals</span></span></button>
-    <button class="home-tile secondary" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Search dishes, ingredients, method</span></span></button>
-    <button class="home-tile" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
-    <button class="home-tile" type="button" onclick="openClosingReport()"><span class="home-code">CLO</span><span><span class="home-name">Closing Report</span><span class="home-meta">End of day report to Francesco</span></span></button>
+  </div>
+
+  <button type="button" class="home-toggle" id="ops-toggle" onclick="toggleHomePanel('ops')">
+    <span class="home-toggle-label">Daily Operations</span>
+    <span class="home-toggle-right"><span class="home-toggle-hint">Order · Recipes · Reports · Roster</span><span class="home-chev" id="ops-chev">&#9662;</span></span>
+  </button>
+  <div class="home-grid home-grid-ops home-panel" id="ops-panel" style="display:none">
+    <button class="home-tile compact" onclick="openOrderInventory()"><span class="home-code">ORD</span><span><span class="home-name">Order Inventory</span><span class="home-meta">Quantities, prices, totals</span></span></button>
+    <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Search dishes, method</span></span></button>
+    <button class="home-tile compact" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
+    <button class="home-tile compact" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
+  </div>
+
+  <button type="button" class="home-toggle mgmt-toggle" id="mgmt-toggle" onclick="toggleHomePanel('mgmt')">
+    <span class="home-toggle-label">Management</span>
+    <span class="home-toggle-right"><span class="home-toggle-hint">Closing · Team</span><span class="home-chev" id="mgmt-chev">&#9662;</span></span>
+  </button>
+  <div class="home-grid home-grid-mgmt home-panel" id="mgmt-panel" style="display:none">
+    <button class="home-tile compact mgmt" type="button" onclick="openClosingReport()"><span class="home-code">CLO</span><span><span class="home-name">Closing Report</span><span class="home-meta">End of day report to Francesco</span></span></button>
+    <button class="home-tile compact mgmt" type="button" onclick="openTeam()"><span class="home-code">TEAM</span><span><span class="home-name">Get to Know Us</span><span class="home-meta">Quick team survey</span></span></button>
   </div>
 </div>
 
@@ -615,6 +771,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="recipes-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
+<div id="team-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
 <div class="content" id="content"></div>
 
 <div id="add-section-wrap" class="add-section">
@@ -635,7 +792,6 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 
 <div class="footer-bar">
   <span class="foot-label" id="foot-label">Evening service</span>
-  <button class="reset-btn" onclick="resetAll()">Reset all</button>
 </div>
 
 <div class="undo-toast" id="undo-toast">
@@ -643,10 +799,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="order-items.js?v=1781279899"></script>
-<script src="recipes.js?v=1781279899"></script>
-<script src="closing-report.js?v=1781279899"></script>
-<script src="app.js?v=1781279899"></script>
+<script src="order-items.js?v=1781343997"></script>
+<script src="recipes.js?v=1781343997"></script>
+<script src="closing-report.js?v=1781343997"></script>
+<script src="team.js?v=1781343997"></script>
+<script src="app.js?v=1781343997"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
