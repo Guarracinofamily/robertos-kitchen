@@ -320,7 +320,8 @@ function teamRender() {
   if (teamMode === 'list')   { el.innerHTML = teamListHTML(); return; }
   if (teamMode === 'survey') { el.innerHTML = teamSurveyHTML(); teamUpdateProgress(); return; }
   if (teamMode === 'thanks') { el.innerHTML = teamThanksHTML(); return; }
-  if (teamMode === 'admin')  { el.innerHTML = teamAdminHTML(); return; }
+  if (teamMode === 'admin')  { el.innerHTML = teamAdminHTML(); setTimeout(function(){ teamAiRenderChat(false); var t=document.getElementById('ai-names-toggle'); if(t&&teamAiIncludeNames){t.classList.add('on');t.textContent='Names: ON';} }, 0); return; }
+  if (teamMode === 'chairman'){ el.innerHTML = teamChairmanHTML(); return; }
 }
 
 function teamSetLang(code){ teamLang = code; teamRender(); }
@@ -332,19 +333,19 @@ function teamListHTML() {
   var html = '<div class="team-wrap"><div class="team-head">';
   html += '<div class="team-title">'+Tui('title')+'<span class="team-corner" id="team-corner" onclick="teamCornerTap()"></span></div>';
   html += '<div class="team-sub">'+Tui('intro')+'</div></div>';
-  // deadline banner — nudges Danilo/Antonio as 20 June approaches (shows when app is opened)
+  // deadline banner — nudges Danilo/Antonio as the deadline approaches (shows when app is opened)
   if (teamCompletionLoaded) {
-    var cc = teamCompletionPct();
-    var pending = cc.total - cc.done;
-    var dl = new Date(TEAM_ROUND.deadline+'T23:59:59');
-    var now = new Date();
-    var daysLeft = Math.ceil((dl - now) / 86400000);
-    if (pending > 0 && daysLeft <= 3) {
-      var cls, msg;
-      if (daysLeft < 0) { cls='overdue'; msg='OVERDUE — '+pending+' still not done. Deadline was '+teamFmtDate(TEAM_ROUND.deadline)+'.'; }
-      else if (daysLeft === 0) { cls='today'; msg='DEADLINE TODAY — '+pending+' still need to finish the survey.'; }
-      else { cls='soon'; msg=daysLeft+' day'+(daysLeft===1?'':'s')+' left — '+pending+' still to complete by '+teamFmtDate(TEAM_ROUND.deadline)+'.'; }
-      html += '<div class="team-deadline '+cls+'">⏰ '+msg+'</div>';
+    var ccb = teamCompletionPct();
+    var pendingB = ccb.total - ccb.done;
+    var dlB = new Date(TEAM_ROUND.deadline+'T23:59:59');
+    var nowB = new Date();
+    var daysLeftB = Math.ceil((dlB - nowB) / 86400000);
+    if (pendingB > 0 && daysLeftB <= 3) {
+      var clsB, msgB;
+      if (daysLeftB < 0) { clsB='overdue'; msgB='OVERDUE — '+pendingB+' still not done. Deadline was '+teamFmtDate(TEAM_ROUND.deadline)+'.'; }
+      else if (daysLeftB === 0) { clsB='today'; msgB='DEADLINE TODAY — '+pendingB+' still need to finish the survey.'; }
+      else { clsB='soon'; msgB=daysLeftB+' day'+(daysLeftB===1?'':'s')+' left — '+pendingB+' still to complete by '+teamFmtDate(TEAM_ROUND.deadline)+'.'; }
+      html += '<div class="team-deadline '+clsB+'">⏰ '+msgB+'</div>';
     }
   }
   // completion strip — visible to everyone so the team sees progress; drives Danilo's task
@@ -380,11 +381,14 @@ function teamListHTML() {
 }
 
 // Passcode-gated admin entry (button visible, but team can't get in)
+var teamAdminAnon = false;   // true = anonymous mode (no names shown)
 function teamAdminGate(){
   var code = prompt('Admin passcode:');
   if (code === null) return;
-  if (String(code).trim() !== '1212') { alert('Incorrect passcode.'); return; }
-  teamOpenAdmin();
+  var c = String(code).trim();
+  if (c === '1212') { teamAdminAnon = true; teamAiIncludeNames = false; teamOpenAdmin(); }
+  else if (c === '121212') { teamAdminAnon = false; teamOpenAdmin(); }
+  else { alert('Incorrect passcode.'); return; }
 }
 
 function teamStart(staffId) {
@@ -479,18 +483,7 @@ async function teamSubmit() {
   }
   var btn=document.getElementById('team-submit-btn'); if(btn){btn.disabled=true;btn.textContent=Tui('sending');}
   var row = { staff_id:(teamCurrent._virtual?null:teamCurrent.id), staff_name:teamCurrent.name, designation:teamCurrent.designation||null, station_key:teamCurrent.station_key||null, answers:teamAnswers, lang:teamLang, submitted_at:new Date().toISOString() };
-  try {
-    var res=await sb.from('team_survey').insert(row);
-    if(res.error){
-      // If the optional 'lang' column doesn't exist, retry without it rather than blocking the person
-      if((res.error.message||'').toLowerCase().indexOf('lang')!==-1 || (res.error.code||'')==='PGRST204'){
-        var row2={}; Object.keys(row).forEach(function(k){ if(k!=='lang')row2[k]=row[k]; });
-        var res2=await sb.from('team_survey').insert(row2);
-        if(res2.error)throw res2.error;
-      } else { throw res.error; }
-    }
-    teamMode='thanks'; teamRender();
-  }
+  try { var res=await sb.from('team_survey').insert(row); if(res.error)throw res.error; teamMode='thanks'; teamRender(); }
   catch(e){ if(btn){btn.disabled=false;btn.textContent=Tui('send');} alert('Could not send — please try again.\n'+(e.message||'')); }
 }
 
@@ -579,8 +572,53 @@ async function teamOpenAdmin(){
   teamMode='admin';
   try { var res=await sb.from('team_survey').select('*').order('submitted_at',{ascending:false}); teamSubmissions=res.data||[]; }
   catch(e){ teamSubmissions=[]; }
+  await teamLoadSummary();
   teamRender();
+  // translate non-English free-text in the background, then re-render
+  teamTranslateFreeText();
 }
+
+// Cache of translated free text: key = original string, value = English
+var teamTransCache = {};
+async function teamTranslateFreeText(){
+  // collect non-English free-text answers needing translation
+  var toTranslate = [];
+  teamSubmissions.forEach(function(r){
+    if(!r.lang || r.lang==='en') return;
+    var a=r.answers||{};
+    ['change_one','anything'].forEach(function(f){
+      var v=a[f];
+      if(v && v.trim() && teamTransCache[v]===undefined){ toTranslate.push(v.trim()); }
+    });
+  });
+  // de-dupe
+  toTranslate = toTranslate.filter(function(v,i){ return toTranslate.indexOf(v)===i; });
+  if(!toTranslate.length) return;
+  try{
+    var resp = await fetch(TEAM_AI_PROXY_URL, {
+      method:'POST', headers: teamAiProxyHeaders(),
+      body: JSON.stringify({ action:'translate', items: toTranslate })
+    });
+    var data = await resp.json();
+    var arr = data.translations || [];
+    toTranslate.forEach(function(orig,i){ if(arr[i]) teamTransCache[orig]=arr[i]; });
+    if(teamMode==='admin') teamRender(); // re-render with translations
+  }catch(e){ /* leave originals if translation fails */ }
+}
+// ── AI proxy (secure Supabase Edge Function — keeps the Anthropic key server-side) ──
+var TEAM_AI_PROXY_URL = 'https://zrpglswalgjbtghudmhu.supabase.co/functions/v1/survey-assistant';
+var TEAM_AI_PROXY_SECRET = 'Kitchen';
+function teamAiProxyHeaders(){
+  return {
+    'Content-Type':'application/json',
+    'Authorization':'Bearer '+SUPABASE_KEY,
+    'apikey':SUPABASE_KEY,
+    'x-proxy-secret':TEAM_AI_PROXY_SECRET
+  };
+}
+
+// Return English text for a free-text answer (translated if available)
+function teamEnText(v){ if(!v)return v; return teamTransCache[v.trim()] || v; }
 
 function teamBar(label,val){
   if(val===null)return '<div class="ta-bar-row"><span>'+label+'</span><span class="ta-na">no data</span></div>';
@@ -639,23 +677,44 @@ function teamVerdict(s,flags){
   return 'Mostly solid with a couple of soft signals worth a casual check-in.';
 }
 
+// Display name respecting anonymous mode. In anon mode, returns "Section #n".
+var _teamAnonMap = null;
+function teamBuildAnonMap(subs){
+  _teamAnonMap = {};
+  var counters = {};
+  subs.forEach(function(r){
+    var sec = teamSectionFor(r.station_key).label;
+    counters[sec] = (counters[sec]||0)+1;
+    _teamAnonMap[r.staff_id||r.staff_name] = sec + ' #' + counters[sec];
+  });
+}
+function teamDisplayName(r){
+  if(!teamAdminAnon) return r.staff_name;
+  if(_teamAnonMap){ return _teamAnonMap[r.staff_id||r.staff_name] || 'Anonymous'; }
+  return 'Anonymous';
+}
+
 function teamAdminHTML(){
   var latest={};
   teamSubmissions.forEach(function(r){ var key=r.staff_id||r.staff_name; if(!latest[key])latest[key]=r; });
   var subs=Object.keys(latest).map(function(k){return latest[k];});
+  teamBuildAnonMap(subs);
   var total=teamStaff.length;
   var completedIds={}; subs.forEach(function(r){ completedIds[r.staff_id||r.staff_name]=true; });
   var completed=teamStaff.filter(function(s){return completedIds[s.id]||completedIds[s.name];}).length;
   function avg(arr){ return arr.length?Math.round(arr.reduce(function(x,y){return x+y;},0)/arr.length):null; }
 
   var html='<div class="team-wrap"><div class="team-head"><button class="team-back" onclick="openTeam()">&#8592; Back</button>';
-  html+='<div class="team-title">Team Report</div>';
+  html+='<div class="team-title">Team Report'+(teamAdminAnon?' <span class="ta-mode anon">Anonymous</span>':' <span class="ta-mode named">Named</span>')+'</div>';
   html+='<div class="team-sub">'+TEAM_ROUND.label+'. Honest signals, not verdicts — strong flags are reliable, soft ones are conversations to have.</div></div>';
   // completion banner
   var pct = total ? Math.round(completed/total*100) : 0;
   html+='<div class="ta-completion"><div class="tps-top"><span class="tps-pct">'+pct+'%</span><span class="tps-count">'+completed+' / '+total+' completed</span></div>';
   html+='<div class="tps-bar"><span class="tps-fill" style="width:'+pct+'%"></span></div>';
   html+='<div class="tps-dates"><span>Deadline '+teamFmtDate(TEAM_ROUND.deadline)+'</span><span>Next test '+teamFmtDate(TEAM_ROUND.nextTest)+'</span></div></div>';
+  html+='<button class="cd-open-btn" onclick="openTeamChairman()">&#128202; Open Dashboard (presentation mode)</button>';
+
+  if(subs.length){ html += teamAiPanelHTML(); }
 
   if(subs.length){
     // global aggregates + flag tallies
@@ -666,14 +725,14 @@ function teamAdminHTML(){
       var s=teamScoreOne(r.answers||{});
       ['reliability','integrity','loyalty','engagement'].forEach(function(d){ if(s[d]!==null)agg[d].push(s[d]); });
       teamFlags(s,r.answers||{}).forEach(function(f){
-        if(f.k==='Flight risk'&&f.level==='strong')flightStrong.push(r.staff_name);
-        if(f.k==='Flight risk'&&f.level==='soft')flightSoft.push(r.staff_name);
-        if(f.k==='Integrity'&&f.level==='soft')integritySoft.push(r.staff_name);
-        if(f.k==='Integrity'&&f.level==='strong')integrityStrong.push(r.staff_name);
-        if(f.k.indexOf('Burnout')!==-1)burnout.push(r.staff_name);
-        if(f.k==='Loyal')loyal.push(r.staff_name);
+        if(f.k==='Flight risk'&&f.level==='strong')flightStrong.push(teamDisplayName(r));
+        if(f.k==='Flight risk'&&f.level==='soft')flightSoft.push(teamDisplayName(r));
+        if(f.k==='Integrity'&&f.level==='soft')integritySoft.push(teamDisplayName(r));
+        if(f.k==='Integrity'&&f.level==='strong')integrityStrong.push(teamDisplayName(r));
+        if(f.k.indexOf('Burnout')!==-1)burnout.push(teamDisplayName(r));
+        if(f.k==='Loyal')loyal.push(teamDisplayName(r));
       });
-      var c1=(r.answers||{}).change_one; if(c1&&c1.trim())concernsText.push({n:r.staff_name,t:c1.trim()});
+      var c1=(r.answers||{}).change_one; if(c1&&c1.trim())concernsText.push({n:teamDisplayName(r),t:teamEnText(c1.trim())});
     });
 
     // ── headline ──
@@ -724,13 +783,17 @@ function teamAdminHTML(){
   }
 
   // ── completion ──
-  html+='<div class="team-station">Completion</div><div class="team-admin-status">';
-  TEAM_SECTIONS.forEach(function(sec){
-    var inSec=teamStaff.filter(function(s){ return teamSectionFor(s.station_key).key===sec.key; });
-    if(!inSec.length)return;
-    inSec.forEach(function(s){ var ok=completedIds[s.id]||completedIds[s.name]; html+='<div class="team-status-row '+(ok?'is-done':'is-pending')+'"><span>'+s.name+' <em style="opacity:.5;font-style:normal;font-size:11px">'+sec.label+'</em></span><span>'+(ok?'✓ done':'waiting')+'</span></div>'; });
-  });
-  html+='</div>';
+  if(teamAdminAnon){
+    html+='<div class="team-station">Completion</div><div class="team-admin-status"><div class="team-status-row is-done"><span>'+completed+' of '+total+' completed</span><span>'+(total?Math.round(completed/total*100):0)+'%</span></div></div>';
+  } else {
+    html+='<div class="team-station">Completion</div><div class="team-admin-status">';
+    TEAM_SECTIONS.forEach(function(sec){
+      var inSec=teamStaff.filter(function(s){ return teamSectionFor(s.station_key).key===sec.key; });
+      if(!inSec.length)return;
+      inSec.forEach(function(s){ var ok=completedIds[s.id]||completedIds[s.name]; html+='<div class="team-status-row '+(ok?'is-done':'is-pending')+'"><span>'+s.name+' <em style="opacity:.5;font-style:normal;font-size:11px">'+sec.label+'</em></span><span>'+(ok?'✓ done':'waiting')+'</span></div>'; });
+    });
+    html+='</div>';
+  }
 
   // ── INDIVIDUAL readouts, grouped by section ──
   html+='<div class="team-station">Individual reports</div>';
@@ -741,7 +804,8 @@ function teamAdminHTML(){
     html+='<div class="ta-secdiv">'+sec.label+'</div>';
     members.forEach(function(r){
       var a=r.answers||{}; var s=teamScoreOne(a); var flags=teamFlags(s,a);
-      html+='<div class="ta-person"><div class="ta-person-name">'+r.staff_name+' <span>'+(r.designation||'')+'</span></div>';
+      var nameHtml = teamAdminAnon ? teamDisplayName(r) : (r.staff_name + ' <span>'+(r.designation||'')+'</span>');
+      html+='<div class="ta-person"><div class="ta-person-name">'+nameHtml+'</div>';
       html+='<div class="ta-oneline">'+teamVerdict(s,flags)+'</div>';
       [['reliability','Reliability'],['integrity','Integrity'],['loyalty','Loyalty'],['engagement','Engagement']].forEach(function(d){
         var v=s[d[0]];
@@ -757,8 +821,8 @@ function teamAdminHTML(){
       // motivators / drains in words
       if(Array.isArray(a.motivate)&&a.motivate.length) html+='<div class="ta-said"><b>Motivated by:</b> '+a.motivate.map(function(k){return TEAM_I18N.en.q.motivate.o[k]||k;}).join(', ')+'</div>';
       if(Array.isArray(a.drains)&&a.drains.length) html+='<div class="ta-said"><b>Drained by:</b> '+a.drains.map(function(k){return TEAM_I18N.en.q.drains.o[k]||k;}).join(', ')+'</div>';
-      if(a.change_one&&a.change_one.trim())html+='<div class="ta-said"><b>Would change:</b> '+a.change_one.trim()+'</div>';
-      if(a.anything&&a.anything.trim())html+='<div class="ta-said"><b>Also said:</b> '+a.anything.trim()+'</div>';
+      if(a.change_one&&a.change_one.trim())html+='<div class="ta-said"><b>Would change:</b> '+teamEnText(a.change_one.trim())+'</div>';
+      if(a.anything&&a.anything.trim())html+='<div class="ta-said"><b>Also said:</b> '+teamEnText(a.anything.trim())+'</div>';
       html+='</div>';
     });
   });
@@ -776,6 +840,7 @@ function teamCornerTap() {
   teamCornerTaps.push(now);
   if (teamCornerTaps.length >= 5) {
     teamCornerTaps = [];
+    teamAdminAnon = false;
     teamOpenAdmin();
   }
 }
@@ -827,3 +892,473 @@ function toggleHomePanel(which){
   document.addEventListener('DOMContentLoaded', _wrapDashboard);
   window.addEventListener('load', _wrapDashboard);
 })();
+
+// ════════════════════════════════════════════════════════════
+//  AI ASSISTANT (admin only — reasons from real survey data)
+// ════════════════════════════════════════════════════════════
+var teamAiIncludeNames = false;   // toggle: include individual names or team-only
+var teamAiHistory = [];           // [{role, content}]
+var teamAiBusy = false;
+var teamAiArea = 'all';           // 'all' or a TEAM_SECTIONS key
+
+// Compile the survey results into a compact text briefing for the model.
+function teamAiBriefing(includeNames){
+  var latest={};
+  teamSubmissions.forEach(function(r){ var k=r.staff_id||r.staff_name; if(!latest[k])latest[k]=r; });
+  var subs=Object.keys(latest).map(function(k){return latest[k];});
+  // area scope
+  var areaLabel='the whole team';
+  if(teamAiArea && teamAiArea!=='all'){
+    subs = subs.filter(function(r){ return teamSectionFor(r.station_key).key===teamAiArea; });
+    var sec=null; for(var i=0;i<TEAM_SECTIONS.length;i++){ if(TEAM_SECTIONS[i].key===teamAiArea){sec=TEAM_SECTIONS[i];break;} }
+    areaLabel = sec? ('the '+sec.label+' area') : 'this area';
+  }
+  if(!subs.length) return 'No survey responses yet for '+areaLabel+'.';
+
+  var agg={reliability:[],integrity:[],loyalty:[],engagement:[]};
+  var lines=[];
+  function enText(qid,key){ try{ return TEAM_I18N.en.q[qid].o[key]||key; }catch(e){ return key; } }
+
+  lines.push('SCOPE OF THIS ANALYSIS: '+areaLabel+'.');
+  // team + section aggregates
+  subs.forEach(function(r){ var s=teamScoreOne(r.answers||{}); ['reliability','integrity','loyalty','engagement'].forEach(function(d){ if(s[d]!==null)agg[d].push(s[d]); }); });
+  function avg(a){ return a.length?Math.round(a.reduce(function(x,y){return x+y;},0)/a.length):null; }
+  lines.push((teamAiArea==='all'?'TEAM SIZE: ':'AREA SIZE: ')+subs.length+' responses'+(teamAiArea==='all'?' of '+teamStaff.length+' staff':'')+'.');
+  lines.push('AVERAGES (0-100): Reliability '+avg(agg.reliability)+', Integrity '+avg(agg.integrity)+', Loyalty '+avg(agg.loyalty)+', Engagement '+avg(agg.engagement)+'.');
+
+  // by section (only when looking at whole team)
+  if(teamAiArea==='all'){
+    lines.push('\nBY SECTION:');
+    TEAM_SECTIONS.forEach(function(sec){
+      var members=subs.filter(function(r){ return teamSectionFor(r.station_key).key===sec.key; });
+      if(!members.length)return;
+      var sa={reliability:[],integrity:[],loyalty:[],engagement:[]};
+      members.forEach(function(r){ var s=teamScoreOne(r.answers||{}); ['reliability','integrity','loyalty','engagement'].forEach(function(d){ if(s[d]!==null)sa[d].push(s[d]); }); });
+      lines.push('- '+sec.label+' ('+members.length+'): Rel '+avg(sa.reliability)+', Int '+avg(sa.integrity)+', Loy '+avg(sa.loyalty)+', Eng '+avg(sa.engagement));
+    });
+  }
+
+  // flags tally
+  var tally={};
+  subs.forEach(function(r){ var s=teamScoreOne(r.answers||{}); teamFlags(s,r.answers||{}).forEach(function(f){ var key=f.k+' ('+f.level+')'; tally[key]=(tally[key]||0)+1; }); });
+  lines.push('\nFLAGS'+(teamAiArea==='all'?' ACROSS TEAM':' IN THIS AREA')+':');
+  Object.keys(tally).forEach(function(k){ lines.push('- '+k+': '+tally[k]); });
+
+  // what they'd change (always include, anonymised unless names on)
+  lines.push('\nWHAT THEY WOULD CHANGE (their own words):');
+  subs.forEach(function(r){ var c=(r.answers||{}).change_one; if(c&&c.trim()) lines.push('- '+(includeNames?r.staff_name+': ':'')+'"'+teamEnText(c.trim())+'"'); });
+
+  // individual detail only if names allowed
+  if(includeNames){
+    lines.push('\nINDIVIDUAL DETAIL:');
+    subs.forEach(function(r){
+      var a=r.answers||{}; var s=teamScoreOne(a); var fl=teamFlags(s,a);
+      lines.push('• '+r.staff_name+' ('+(r.designation||'')+', '+teamSectionFor(r.station_key).label+'): Rel '+s.reliability+' Int '+s.integrity+' Loy '+s.loyalty+' Eng '+s.engagement+(fl.length?'; flags: '+fl.map(function(f){return f.k+'/'+f.level;}).join(', '):'; no flags')
+        +'; motivated by: '+((a.motivate||[]).map(function(k){return enText('motivate',k);}).join(', ')||'-')
+        +'; drained by: '+((a.drains||[]).map(function(k){return enText('drains',k);}).join(', ')||'-'));
+    });
+  }
+  return lines.join('\n');
+}
+
+function teamAiSystemPrompt(){
+  return 'You are Francesco\'s trusted advisor: a rare blend of two things. First, a veteran luxury-hospitality operator who has run Michelin-level kitchens and floor operations for 25 years — you think in covers, spend-per-head, service flow, brigade dynamics, and margins, and you have seen every kind of kitchen politics. Second, an organisational psychologist who reads people accurately — motivation, trust, burnout, flight risk, the gap between what people say and what they mean. You advise Francesco the way a sharp, expensive consultant who actually knows his restaurant would: direct, specific, and unafraid to name the real issue.\n\n'
+    + 'WHO FRANCESCO IS: senior leader at Roberto\'s, a luxury Italian restaurant in DIFC, Dubai. He runs operations, guest experience, the team, and strategy under real financial pressure. He is Italian, exacting, protective of his people, and thinks like an owner. He does not need motivational fluff — he needs an edge he doesn\'t already have.\n\n'
+    + 'HOW TO THINK:\n'
+    + '- Read BENEATH the data. Do not just restate scores — interpret them. A low integrity score next to a high engagement score tells a story; tell it. Connect dots across questions (e.g. someone who wants autonomy but distrusts the team is signalling something specific).\n'
+    + '- Distinguish the SIGNAL from the noise. With few responses, say so once, briefly, then give your best read anyway — Francesco wants your judgement, not endless caveats.\n'
+    + '- Be psychologically precise. Instead of "improve engagement," name the mechanism: what is draining it, for whom, and the lever that actually moves it.\n'
+    + '- Give advice only a real F&B operator would give — tied to service, stations, covers, brigade hierarchy, the specific cultural mix (India, Nepal, Italy, Philippines), and the realities of a Dubai luxury venue. No generic HR playbook lines like "run a weekly briefing" unless you make it specific and explain exactly why it fits THIS data.\n'
+    + '- When you spot a real risk (a key person leaving, a trust problem, a brewing resentment), say it plainly and tell him what to do this week.\n'
+    + '- Prioritise ruthlessly. Francesco has limited time and energy. Tell him the ONE thing that matters most, then the rest.\n\n'
+    + 'GROUND RULES:\n'
+    + '- Base everything on the actual data. Quote their real words and the real numbers. Never invent names, scores, or quotes. If asked about someone not in the data, say so.\n'
+    + '- Soft signals are conversations to have, not verdicts. Be honest about the difference between what the data suggests and what it proves.\n\n'
+    + 'OUTPUT FORMAT — IMPORTANT:\n'
+    + '- Write in plain, clean prose. This is shown in a simple chat box that does NOT render markdown. Do NOT use #, ##, **bold**, tables with |, or > quotes — they show up as ugly raw symbols.\n'
+    + '- Use short paragraphs. For lists, use simple dashes (-) at the start of a line, nothing fancier.\n'
+    + '- When you quote what someone wrote, just put it in quotation marks inline.\n'
+    + '- Keep it tight and high-value. Lead with the most important insight in the first sentence. Sound like a brilliant colleague talking, not a report being filed.\n\n'
+    + '=== SURVEY DATA ===\n' + teamAiBriefing(teamAiIncludeNames);
+}
+
+async function teamAiAsk(question){
+  if(teamAiBusy) return;
+  if(!question || !question.trim()) return;
+  teamAiBusy = true;
+  teamAiHistory.push({role:'user', content:question.trim()});
+  teamAiRenderChat(true);
+  try{
+    var messages = teamAiHistory.slice(-10); // keep context bounded
+    var resp = await fetch(TEAM_AI_PROXY_URL, {
+      method:'POST', headers: teamAiProxyHeaders(),
+      body: JSON.stringify({
+        action:'chat', model:'claude-sonnet-4-6', max_tokens:1000,
+        system: teamAiSystemPrompt(),
+        messages: messages
+      })
+    });
+    var data = await resp.json();
+    var text = (data.text||'').trim();
+    if(!text && data.error) text = 'Assistant error: '+data.error;
+    if(!text) text = 'No answer came back. Try rephrasing.';
+    teamAiHistory.push({role:'assistant', content:text});
+  }catch(e){
+    teamAiHistory.push({role:'assistant', content:'Could not reach the assistant just now. Please try again.'});
+  }
+  teamAiBusy = false;
+  teamAiRenderChat(false);
+}
+
+function teamAiQuick(q){ teamAiAsk(q); }
+function teamAiToggleNames(){ if(teamAdminAnon){ alert('This report was opened in Anonymous mode. To analyse by name, open the report with the named passcode.'); return; } teamAiIncludeNames = !teamAiIncludeNames; var b=document.getElementById('ai-names-toggle'); if(b){ b.classList.toggle('on', teamAiIncludeNames); b.textContent = teamAiIncludeNames?'Names: ON':'Names: off'; } }
+function teamAiSend(){ var inp=document.getElementById('ai-input'); if(!inp)return; var v=inp.value; inp.value=''; teamAiAsk(v); }
+function teamAiInputKey(e){ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); teamAiSend(); } }
+function teamAiClear(){ teamAiHistory=[]; teamAiRenderChat(false); }
+
+function teamAiRenderChat(thinking){
+  var box=document.getElementById('ai-chat'); if(!box)return;
+  var html='';
+  teamAiHistory.forEach(function(m, idx){
+    if(m.role==='assistant'){
+      html += '<div class="ai-msg ai-assistant"><div class="ai-msg-body">'+teamAiFormat(m.content)+'</div>'
+        +'<button class="ai-copy" onclick="teamAiCopy('+idx+')" title="Copy answer">Copy</button></div>';
+    } else {
+      html += '<div class="ai-msg ai-user">'+teamAiFormat(m.content)+'</div>';
+    }
+  });
+  if(thinking) html += '<div class="ai-msg ai-assistant ai-thinking"><span class="ai-dot"></span><span class="ai-dot"></span><span class="ai-dot"></span></div>';
+  box.innerHTML = html;
+  box.scrollTop = box.scrollHeight;
+}
+function teamAiCopy(idx){
+  var m=teamAiHistory[idx]; if(!m)return;
+  var txt=m.content;
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(txt).then(function(){ teamAiToast('Copied'); }); }
+  else { var ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy');teamAiToast('Copied');}catch(e){} document.body.removeChild(ta); }
+}
+function teamAiToast(msg){
+  var t=document.getElementById('ai-toast'); if(!t){ t=document.createElement('div'); t.id='ai-toast'; t.className='ai-toast'; document.body.appendChild(t); }
+  t.textContent=msg; t.classList.add('show'); setTimeout(function(){ t.classList.remove('show'); },1400);
+}
+function teamAiFormat(t){
+  // escape HTML first
+  var s = t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var lines = s.split('\n');
+  var out = [];
+  var inList = false;
+  lines.forEach(function(line){
+    var l = line.replace(/\s+$/,'');
+    // strip leading markdown table pipes / separators — render tables as plain lines
+    if(/^\s*\|?[\s:|-]+\|?\s*$/.test(l) && l.indexOf('|')!==-1){ return; } // table separator row
+    // headers (#, ##, ###) -> bold line
+    var h = l.match(/^\s*#{1,6}\s+(.*)$/);
+    if(h){ if(inList){out.push('</ul>');inList=false;} out.push('<div class="ai-h">'+teamAiInline(h[1])+'</div>'); return; }
+    // bullet (- or *)
+    var b = l.match(/^\s*[-*]\s+(.*)$/);
+    if(b){ if(!inList){out.push('<ul class="ai-ul">');inList=true;} out.push('<li>'+teamAiInline(b[1])+'</li>'); return; }
+    if(inList){ out.push('</ul>'); inList=false; }
+    // blockquote
+    var q = l.match(/^\s*&gt;\s*(.*)$/);
+    if(q){ out.push('<div class="ai-quote">'+teamAiInline(q[1])+'</div>'); return; }
+    // table row -> join cells with spacing
+    if(l.indexOf('|')!==-1 && (l.match(/\|/g)||[]).length>=2){
+      var cells = l.split('|').map(function(c){return c.trim();}).filter(function(c){return c.length;});
+      out.push('<div class="ai-row">'+cells.map(function(c){return teamAiInline(c);}).join(' &nbsp;·&nbsp; ')+'</div>'); return;
+    }
+    if(l.trim()===''){ out.push('<div class="ai-sp"></div>'); return; }
+    out.push('<div>'+teamAiInline(l)+'</div>');
+  });
+  if(inList) out.push('</ul>');
+  return out.join('');
+}
+// inline: bold, italics
+function teamAiInline(s){
+  return s
+    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*]+)\*(?!\*)/g,'$1<em>$2</em>')
+    .replace(/`([^`]+)`/g,'<code>$1</code>');
+}
+
+function teamAiAreaOptions(){
+  var subs={};
+  teamSubmissions.forEach(function(r){ var k=teamSectionFor(r.station_key).key; subs[k]=(subs[k]||0)+1; });
+  var h='<option value="all">Whole team</option>';
+  TEAM_SECTIONS.forEach(function(sec){ if(subs[sec.key]) h+='<option value="'+sec.key+'"'+(teamAiArea===sec.key?' selected':'')+'>'+sec.label+' ('+subs[sec.key]+')</option>'; });
+  return h;
+}
+function teamAiSetArea(v){ teamAiArea=v; }
+
+function teamAiPanelHTML(){
+  var h='<div class="ai-panel">';
+  // header row
+  h+='<div class="ai-head"><span class="ai-title">Ask the Assistant</span>';
+  h+= teamAdminAnon ? '<span class="ai-anon-tag">Anonymous</span>' : '<button class="ai-names-toggle" id="ai-names-toggle" onclick="teamAiToggleNames()">Names: off</button>';
+  h+='</div>';
+  // scope selector
+  h+='<div class="ai-scope"><label class="ai-scope-lbl">Focus on</label><select class="ai-scope-sel" onchange="teamAiSetArea(this.value)">'+teamAiAreaOptions()+'</select></div>';
+  // quick actions
+  h+='<div class="ai-quick">';
+  [['⚡','What changes would make the team more efficient?'],['⚠️','Where are we most at risk?'],['↗️','Who should I develop or promote?'],['🔥','How do I improve engagement?'],['💬','What are the common themes in their words?']].forEach(function(q){
+    h+='<button class="ai-qbtn" onclick="teamAiQuick(\''+q[1].replace(/'/g,"\\'")+'\')"><span class="ai-qicon">'+q[0]+'</span>'+q[1]+'</button>';
+  });
+  h+='</div>';
+  // chat
+  h+='<div class="ai-chat" id="ai-chat"></div>';
+  // input
+  h+='<div class="ai-inputbar"><textarea id="ai-input" class="ai-input" rows="1" placeholder="Ask anything about the results…" onkeydown="teamAiInputKey(event)"></textarea>';
+  h+='<button class="ai-send" onclick="teamAiSend()">Ask</button></div>';
+  // footer
+  h+='<div class="ai-foot"><button class="ai-clear" onclick="teamAiClear()">Clear chat</button><span class="ai-note">Grounded in your survey data. Soft signals are conversations, not verdicts.</span></div>';
+  h+='</div>';
+  return h;
+}
+
+// ════════════════════════════════════════════════════════════
+//  CHAIRMAN DASHBOARD — clean presentation mode (anonymous, aggregate + by-area)
+// ════════════════════════════════════════════════════════════
+var teamChairView = 'aggregate';   // 'aggregate' | 'byarea'
+
+function teamChairStats(){
+  var latest={};
+  teamSubmissions.forEach(function(r){ var k=r.staff_id||r.staff_name; if(!latest[k])latest[k]=r; });
+  var subs=Object.keys(latest).map(function(k){return latest[k];});
+  var total=teamStaff.length;
+  function avg(a){ return a.length?Math.round(a.reduce(function(x,y){return x+y;},0)/a.length):null; }
+
+  var dims=['reliability','integrity','loyalty','engagement'];
+  var agg={reliability:[],integrity:[],loyalty:[],engagement:[]};
+  var flightStrong=0, flightSoft=0, burnout=0, loyal=0, engagedHi=0, integrityLow=0;
+  var themes={};
+  subs.forEach(function(r){
+    var a=r.answers||{}; var s=teamScoreOne(a); var fl=teamFlags(s,a);
+    dims.forEach(function(d){ if(s[d]!==null)agg[d].push(s[d]); });
+    fl.forEach(function(f){
+      if(f.k==='Flight risk'&&f.level==='strong')flightStrong++;
+      if(f.k==='Flight risk'&&f.level==='soft')flightSoft++;
+      if(f.k.indexOf('Burnout')!==-1)burnout++;
+      if(f.k==='Loyal')loyal++;
+      if(f.k==='Engaged')engagedHi++;
+      if(f.k==='Integrity'&&(f.level==='soft'||f.level==='strong'))integrityLow++;
+    });
+    // themes from drains (structured, language-independent)
+    (a.drains||[]).forEach(function(k){ var t=TEAM_I18N.en.q.drains.o[k]; if(t){themes[t]=(themes[t]||0)+1;} });
+  });
+  // section-level
+  var sections=[];
+  TEAM_SECTIONS.forEach(function(sec){
+    var mem=subs.filter(function(r){ return teamSectionFor(r.station_key).key===sec.key; });
+    if(!mem.length)return;
+    var sa={reliability:[],integrity:[],loyalty:[],engagement:[]};
+    mem.forEach(function(r){ var s=teamScoreOne(r.answers||{}); dims.forEach(function(d){ if(s[d]!==null)sa[d].push(s[d]); }); });
+    sections.push({ label:sec.label, n:mem.length,
+      reliability:avg(sa.reliability), integrity:avg(sa.integrity), loyalty:avg(sa.loyalty), engagement:avg(sa.engagement) });
+  });
+  var themeList=Object.keys(themes).map(function(k){return {t:k,n:themes[k]};}).sort(function(a,b){return b.n-a.n;});
+  return {
+    total:total, responded:subs.length, pct: total?Math.round(subs.length/total*100):0,
+    avg:{ reliability:avg(agg.reliability), integrity:avg(agg.integrity), loyalty:avg(agg.loyalty), engagement:avg(agg.engagement) },
+    overall: avg([].concat(agg.reliability,agg.integrity,agg.loyalty,agg.engagement)),
+    flightStrong:flightStrong, flightSoft:flightSoft, burnout:burnout, loyal:loyal, engagedHi:engagedHi, integrityLow:integrityLow,
+    sections:sections, themes:themeList, subs:subs
+  };
+}
+
+// ── SVG helpers ──
+function teamColorFor(v){ if(v===null)return '#cfc0ad'; return v>=70?'#4b5128':(v>=50?'#caa23a':'#a8321a'); }
+function teamDonut(v,label){
+  var r=52, c=2*Math.PI*r, pct=(v||0)/100, dash=c*pct;
+  var col=teamColorFor(v);
+  return '<div class="cd-donut"><svg viewBox="0 0 130 130">'
+    +'<circle cx="65" cy="65" r="'+r+'" fill="none" stroke="#ece3d5" stroke-width="13"/>'
+    +'<circle cx="65" cy="65" r="'+r+'" fill="none" stroke="'+col+'" stroke-width="13" stroke-linecap="round" stroke-dasharray="'+dash+' '+c+'" transform="rotate(-90 65 65)"/>'
+    +'<text x="65" y="60" text-anchor="middle" class="cd-donut-num">'+(v===null?'–':v)+'</text>'
+    +'<text x="65" y="82" text-anchor="middle" class="cd-donut-lbl">/100</text></svg>'
+    +'<div class="cd-donut-name">'+label+'</div></div>';
+}
+function teamBarChart(rows, maxv){
+  maxv = maxv || 100;
+  var h='<div class="cd-barchart">';
+  rows.forEach(function(row){
+    var w = row.v===null?0:Math.round(row.v/maxv*100);
+    h+='<div class="cd-bc-row"><div class="cd-bc-label">'+row.label+'</div>'
+      +'<div class="cd-bc-track"><div class="cd-bc-fill" style="width:'+w+'%;background:'+(row.color||teamColorFor(row.v))+'"></div></div>'
+      +'<div class="cd-bc-val">'+(row.v===null?'–':row.v)+'</div></div>';
+  });
+  return h+'</div>';
+}
+
+function teamChairmanHTML(){
+  var st = teamChairStats();
+  var lowSample = st.pct < 60;
+  var h='<div class="cd-wrap" id="cd-wrap">';
+
+  // ── header / controls (hidden in print) ──
+  h+='<div class="cd-controls no-print">';
+  h+='<button class="team-back" onclick="openTeam()">&#8592; Back</button>';
+  h+='<div class="cd-toggle">';
+  h+='<button class="cd-tg'+(teamChairView==='aggregate'?' on':'')+'" onclick="teamChairSet(\'aggregate\')">Whole organisation</button>';
+  h+='<button class="cd-tg'+(teamChairView==='byarea'?' on':'')+'" onclick="teamChairSet(\'byarea\')">By area</button>';
+  h+='</div>';
+  h+='<button class="cd-print" onclick="window.print()">Print / Export PDF</button>';
+  h+='</div>';
+
+  // ── title block ──
+  h+='<div class="cd-page">';
+  h+='<div class="cd-titlebar"><div><div class="cd-brand">Roberto\'s DIFC</div><div class="cd-title">Team Health Report</div><div class="cd-sub">'+TEAM_ROUND.label+' · Confidential · Anonymous aggregate</div></div>';
+  h+='<div class="cd-resp"><div class="cd-resp-pct">'+st.pct+'%</div><div class="cd-resp-lbl">'+st.responded+' of '+st.total+' responded</div></div></div>';
+
+  if(lowSample){
+    h+='<div class="cd-warn no-print">⚠ Only '+st.pct+'% of the team has responded. This report is not yet representative — wait for fuller completion before presenting to the chairman.</div>';
+  }
+
+  if(!st.responded){ h+='<div class="team-empty">No responses yet.</div></div></div>'; return h; }
+
+  if(teamChairView==='aggregate'){
+    // ── headline donuts ──
+    h+='<div class="cd-section-title">Organisation health</div>';
+    h+='<div class="cd-donuts">';
+    h+=teamDonut(st.avg.reliability,'Reliability');
+    h+=teamDonut(st.avg.integrity,'Integrity');
+    h+=teamDonut(st.avg.loyalty,'Loyalty');
+    h+=teamDonut(st.avg.engagement,'Engagement');
+    h+='</div>';
+    h+='<div class="cd-overall">Overall team health: <b>'+(st.overall===null?'–':st.overall)+'/100</b></div>';
+
+    // ── stability / risk band ──
+    h+='<div class="cd-section-title">Stability &amp; risk</div>';
+    h+='<div class="cd-stats">';
+    h+='<div class="cd-stat good"><div class="cd-stat-num">'+st.loyal+'</div><div class="cd-stat-lbl">Want to stay &amp; build</div></div>';
+    h+='<div class="cd-stat good"><div class="cd-stat-num">'+st.engagedHi+'</div><div class="cd-stat-lbl">Highly engaged</div></div>';
+    h+='<div class="cd-stat '+(st.flightStrong?'bad':'mid')+'"><div class="cd-stat-num">'+st.flightStrong+'</div><div class="cd-stat-lbl">Strong flight-risk signals</div></div>';
+    h+='<div class="cd-stat '+(st.burnout?'bad':'mid')+'"><div class="cd-stat-num">'+st.burnout+'</div><div class="cd-stat-lbl">Burnout signals</div></div>';
+    h+='</div>';
+
+    // ── top themes ──
+    if(st.themes.length){
+      h+='<div class="cd-section-title">What the team finds hardest</div>';
+      var maxn=st.themes[0].n;
+      h+=teamBarChart(st.themes.slice(0,6).map(function(t){return {label:t.t, v:t.n, color:'#7a1218'};}), maxn);
+      h+='<div class="cd-note">Number of people citing each issue. Higher = more widely felt.</div>';
+    }
+
+  } else {
+    // ── BY AREA ──
+    h+='<div class="cd-section-title">Health by area</div>';
+    h+='<div class="cd-area-grid"><div class="cd-area-head"><span>Area</span><span>Team</span><span>Reliability</span><span>Integrity</span><span>Loyalty</span><span>Engagement</span></div>';
+    st.sections.forEach(function(s){
+      h+='<div class="cd-area-row"><span class="cd-area-name">'+s.label+'</span><span class="cd-area-n">'+s.n+'</span>';
+      ['reliability','integrity','loyalty','engagement'].forEach(function(d){
+        h+='<span class="cd-area-cell"><span class="cd-pill" style="background:'+teamColorFor(s[d])+'">'+(s[d]===null?'–':s[d])+'</span></span>';
+      });
+      h+='</div>';
+    });
+    h+='</div>';
+    h+='<div class="cd-note">Each cell is the area average (0–100). Green ≥70, amber 50–69, red &lt;50.</div>';
+
+    // per-area engagement bar comparison
+    h+='<div class="cd-section-title">Engagement across areas</div>';
+    h+=teamBarChart(st.sections.map(function(s){return {label:s.label, v:s.engagement};}));
+  }
+
+  // ── what's being done (framing for chairman) ──
+  h+='<div class="cd-section-title">What this tells us</div>';
+  h+='<div class="cd-narr" id="cd-narr">'+teamChairNarrative(st)+'</div>';
+
+  // ── AI executive summary (draft → approve → save) ──
+  h+='<div class="cd-section-title">Executive summary</div>';
+  if(teamSummaryDraft){
+    // pending review
+    h+='<div class="cd-sum-draft no-print"><div class="cd-sum-draftlabel">DRAFT — review before saving</div>';
+    h+='<div class="cd-sum-body">'+teamAiFormat(teamSummaryDraft)+'</div>';
+    h+='<div class="cd-sum-actions"><button class="cd-sum-approve" onclick="teamApproveSummary()">Approve &amp; save to Dashboard</button>';
+    h+='<button class="cd-sum-regen" onclick="teamGenerateSummary()">Redraft</button>';
+    h+='<button class="cd-sum-discard" onclick="teamDiscardSummary()">Discard</button></div></div>';
+  } else if(teamSummary){
+    // approved summary (shows in print)
+    h+='<div class="cd-sum-final"><div class="cd-sum-body">'+teamAiFormat(teamSummary)+'</div>';
+    h+='<button class="cd-sum-redo no-print" onclick="teamEditSummaryAgain()">Regenerate</button></div>';
+  } else {
+    h+='<div class="cd-sum-empty no-print"><p>Generate an AI-written executive summary (key findings + recommended actions) based on the survey. You review it before it\u2019s saved here.</p>';
+    h+='<button class="cd-sum-btn" id="cd-sum-btn" onclick="teamGenerateSummary()">Generate summary</button></div>';
+  }
+
+  h+='<div class="cd-foot">Generated '+teamFmtDate(new Date().toISOString().slice(0,10))+' · Based on a confidential team self-assessment · Individual responses are not disclosed.</div>';
+  h+='</div></div>';
+  return h;
+}
+
+function teamChairNarrative(st){
+  // plain, factual board-level summary built from the numbers
+  var parts=[];
+  var strongest=null, weakest=null;
+  ['reliability','integrity','loyalty','engagement'].forEach(function(d){
+    var v=st.avg[d]; if(v===null)return;
+    if(strongest===null||v>st.avg[strongest])strongest=d;
+    if(weakest===null||v<st.avg[weakest])weakest=d;
+  });
+  var nm={reliability:'reliability',integrity:'integrity',loyalty:'loyalty',engagement:'engagement'};
+  if(strongest)parts.push('The team\u2019s strongest dimension is '+nm[strongest]+' ('+st.avg[strongest]+'/100).');
+  if(weakest&&weakest!==strongest)parts.push('The area needing most attention is '+nm[weakest]+' ('+st.avg[weakest]+'/100).');
+  if(st.loyal)parts.push(st.loyal+' team member'+(st.loyal>1?'s':'')+' clearly want'+(st.loyal>1?'':'s')+' to stay and grow here.');
+  if(st.flightStrong)parts.push(st.flightStrong+' show'+(st.flightStrong>1?'':'s')+' strong signs of looking elsewhere — worth proactive retention conversations.');
+  if(st.burnout)parts.push(st.burnout+' show signs of fatigue or burnout.');
+  if(st.themes.length)parts.push('The most widely felt frustration is \u201c'+st.themes[0].t+'\u201d.');
+  return parts.map(function(p){return '<div class="cd-narr-line">\u2022 '+p+'</div>';}).join('');
+}
+
+function teamChairSet(v){ teamChairView=v; teamRender(); }
+function openTeamChairman(){ teamMode='chairman'; teamRender(); }
+
+// ════════════════════════════════════════════════════════════
+//  AI SUMMARY → DASHBOARD (draft → approve → save)
+// ════════════════════════════════════════════════════════════
+var teamSummary = null;        // approved summary text (loaded from storage)
+var teamSummaryDraft = null;   // pending draft awaiting approval
+var teamSummaryBusy = false;
+
+async function teamLoadSummary(){
+  try {
+    var res = await sb.from('team_survey_summary').select('*').order('created_at',{ascending:false}).limit(1);
+    if(res.data && res.data.length){ teamSummary = res.data[0].summary; }
+  } catch(e){ /* table may not exist yet; summary stays null */ }
+}
+
+async function teamGenerateSummary(){
+  if(teamSummaryBusy) return;
+  teamSummaryBusy = true;
+  var btn=document.getElementById('cd-sum-btn'); if(btn){btn.disabled=true;btn.textContent='Drafting…';}
+  try{
+    var sys = teamAiSystemPrompt();
+    var ask = 'Write an executive summary of this team survey for a board-level reader (the chairman). '
+      + 'Use exactly two sections with these plain headings on their own line: "KEY FINDINGS" and "RECOMMENDED ACTIONS". '
+      + 'Under KEY FINDINGS: 3-5 short bullet points (start each with a dash) stating the most important things the data shows about the organisation, in plain language, no names. '
+      + 'Under RECOMMENDED ACTIONS: 3-4 short bullet points (start each with a dash) of concrete, prioritised actions. '
+      + 'Keep the whole thing tight and confident. No preamble, no markdown symbols other than dashes for bullets.';
+    var resp = await fetch(TEAM_AI_PROXY_URL, {
+      method:'POST', headers: teamAiProxyHeaders(),
+      body: JSON.stringify({ action:'chat', model:'claude-sonnet-4-6', max_tokens:900, system: sys, messages:[{role:'user', content: ask}] })
+    });
+    var data = await resp.json();
+    var text = (data.text||'').trim();
+    if(!text && data.error) text='Could not generate: '+data.error;
+    teamSummaryDraft = text || 'No summary generated. Try again.';
+  }catch(e){ teamSummaryDraft = 'Could not reach the assistant. Try again.'; }
+  teamSummaryBusy=false;
+  teamRender();
+}
+
+async function teamApproveSummary(){
+  if(!teamSummaryDraft) return;
+  var text = teamSummaryDraft;
+  teamSummary = text;
+  teamSummaryDraft = null;
+  // persist (best-effort; if table missing it still shows this session)
+  try{
+    await sb.from('team_survey_summary').insert({ summary:text, round:TEAM_ROUND.label, created_at:new Date().toISOString() });
+  }catch(e){ /* not fatal */ }
+  teamRender();
+  teamAiToast('Summary saved to Dashboard');
+}
+function teamDiscardSummary(){ teamSummaryDraft=null; teamRender(); }
+function teamEditSummaryAgain(){ teamSummary=null; teamRender(); }
