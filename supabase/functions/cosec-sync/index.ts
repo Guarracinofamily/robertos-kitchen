@@ -29,105 +29,75 @@ function dubaiToday(): string {
   return dubaiNow().toISOString().substring(0, 10);
 }
 
-// Extract all HH:MM occurrences from a string
-function extractTimes(s: string): string[] {
-  const out: string[] = [];
-  const re = /\b([01]?\d|2[0-3]):([0-5]\d)\b/g;
-  let m;
-  while ((m = re.exec(s)) !== null) {
-    out.push(m[1].padStart(2, "0") + ":" + m[2]);
-  }
-  return out;
+interface Rec { emp_id: string; att_date: string; first_in: string | null; last_out: string | null; punch_count: number; punches: string[] }
+
+// Pull HH:MM out of a COSEC timestamp like "13/06/2026 14:19:42" -> "14:19"
+function timeFromStamp(s: string): string | null {
+  if (!s) return null;
+  const m = s.match(/(\d{1,2}):(\d{2})(?::\d{2})?/);
+  if (!m) return null;
+  return m[1].padStart(2, "0") + ":" + m[2];
 }
 
-// Normalise a date string from COSEC (dd/mm/yyyy, dd-mm-yyyy, yyyy-mm-dd) → yyyy-mm-dd
+// Normalise a date like "13/06/2026" -> "2026-06-13"
 function normDate(s: string): string | null {
   if (!s) return null;
   s = s.trim();
-  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  let m = s.match(/(\d{4})-(\d{2})-(\d{2})/);
   if (m) return m[1] + "-" + m[2] + "-" + m[3];
-  m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  m = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
   if (m) return m[3] + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
   return null;
 }
 
-interface Rec { emp_id: string; att_date: string; times: string[] }
-
-// Parse the COSEC response into records, tolerating JSON, XML, or delimited text
+// Parse the COSEC attendance-daily response.
+// Known format (Matrix COSEC v2): pipe-delimited, header row:
+//   UserID|UserName|ProcessDate|Punch1|Punch2|WorkingShift|LateIn|EarlyOut|Overtime|WorkTime
+// Punch1/Punch2 hold full timestamps ("13/06/2026 14:19:42") or are empty.
 function parseCosec(raw: string): Rec[] {
   const recs: Rec[] = [];
   const today = dubaiToday();
-  raw = raw.trim();
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  if (!lines.length) return recs;
 
-  // ── JSON ──
-  if (raw.startsWith("{") || raw.startsWith("[")) {
-    try {
-      const j = JSON.parse(raw);
-      const arr = Array.isArray(j) ? j
-        : Array.isArray(j["attendance-daily"]) ? j["attendance-daily"]
-        : Array.isArray(j.data) ? j.data
-        : Array.isArray(j.records) ? j.records : [j];
-      for (const o of arr) {
-        if (typeof o !== "object" || !o) continue;
-        let id = "", date: string | null = null;
-        const times: string[] = [];
-        for (const [k, v] of Object.entries(o)) {
-          const key = k.toLowerCase().replace(/[^a-z]/g, "");
-          const val = String(v ?? "");
-          if (!id && (key === "userid" || key === "user" || key === "empid" || key === "employeeid" || key === "id")) id = val.trim();
-          else if (!date && (key.includes("date"))) date = normDate(val);
-          else times.push(...extractTimes(val));
-        }
-        if (id) recs.push({ emp_id: id, att_date: date || today, times });
-      }
-      return recs;
-    } catch (_) { /* fall through */ }
+  // Locate header to map columns (tolerant to column reordering)
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(lines.length, 3); i++) {
+    if (/userid/i.test(lines[i]) && /\|/.test(lines[i])) { headerIdx = i; break; }
+  }
+  let col = { id: 0, name: 1, date: 2, p1: 3, p2: 4 };
+  let start = 0;
+  if (headerIdx >= 0) {
+    const h = lines[headerIdx].split("|").map((x) => x.toLowerCase().replace(/[^a-z0-9]/g, ""));
+    const find = (...names: string[]) => h.findIndex((x) => names.includes(x));
+    col = {
+      id: Math.max(0, find("userid")),
+      name: Math.max(1, find("username")),
+      date: Math.max(2, find("processdate", "date")),
+      p1: Math.max(3, find("punch1", "firstin", "intime")),
+      p2: Math.max(4, find("punch2", "lastout", "outtime")),
+    };
+    start = headerIdx + 1;
   }
 
-  // ── XML ──
-  if (raw.startsWith("<")) {
-    const blocks = raw.match(/<(?:row|record|attendance[^>\s]*)\b[\s\S]*?<\/(?:row|record|attendance[^>\s]*)>/gi) || [raw];
-    for (const b of blocks) {
-      const idm = b.match(/<\s*(?:userid|user_id|empid|employee_id)\s*>\s*([^<]+)</i);
-      const dm = b.match(/<\s*[^>]*date[^>]*>\s*([^<]+)</i);
-      if (!idm) continue;
-      const stripped = b.replace(/<\s*[^>]*date[^>]*>[^<]*<\/[^>]+>/gi, "");
-      recs.push({ emp_id: idm[1].trim(), att_date: (dm && normDate(dm[1])) || today, times: extractTimes(stripped) });
-    }
-    return recs;
-  }
-
-  // ── Delimited text (header line + rows) ──
-  const lines = raw.split(/\r?\n/).filter((l) => l.trim());
-  if (lines.length < 1) return recs;
-  const delims = ["|", "\t", ";", ","];
-  let delim = "|";
-  let best = 0;
-  for (const d of delims) {
-    const c = lines[0].split(d).length;
-    if (c > best) { best = c; delim = d; }
-  }
-  const header = lines[0].split(delim).map((h) => h.toLowerCase().replace(/[^a-z]/g, ""));
-  const idIdx = header.findIndex((h) => h === "userid" || h === "user" || h === "empid" || h === "employeeid");
-  const dateIdx = header.findIndex((h) => h.includes("date"));
-  const startRow = idIdx >= 0 ? 1 : 0;
-  for (let i = startRow; i < lines.length; i++) {
-    const cells = lines[i].split(delim);
-    let id: string, date: string | null = null;
-    let timeSrc: string[];
-    if (idIdx >= 0) {
-      id = (cells[idIdx] || "").trim();
-      if (dateIdx >= 0) date = normDate(cells[dateIdx] || "");
-      timeSrc = cells.filter((_, ci) => ci !== idIdx && ci !== dateIdx);
-    } else {
-      // no header — assume first numeric-ish cell is the user id
-      id = (cells[0] || "").trim();
-      timeSrc = cells.slice(1);
-    }
-    if (!id || !/\d/.test(id)) continue;
-    const times: string[] = [];
-    for (const c of timeSrc) times.push(...extractTimes(c));
-    recs.push({ emp_id: id, att_date: date || today, times });
+  for (let i = start; i < lines.length; i++) {
+    const c = lines[i].split("|");
+    const id = (c[col.id] || "").trim();
+    if (!id || !/^\d+$/.test(id)) continue;
+    const date = normDate(c[col.date] || "") || today;
+    const t1 = timeFromStamp(c[col.p1] || "");
+    const t2 = timeFromStamp(c[col.p2] || "");
+    const punches: string[] = [];
+    if (t1) punches.push(t1);
+    if (t2) punches.push(t2);
+    recs.push({
+      emp_id: id,
+      att_date: date,
+      first_in: t1,
+      last_out: t2,
+      punch_count: punches.length,
+      punches,
+    });
   }
   return recs;
 }
@@ -142,6 +112,9 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const force = url.searchParams.get("force") === "1";
   const debug = url.searchParams.get("debug") === "1";
+  const reqDate = url.searchParams.get("date");      // YYYY-MM-DD: sync a specific past date
+  const reqVariant = url.searchParams.get("variant"); // which date param format to use
+  const probe = url.searchParams.get("probe");       // YYYY-MM-DD: try param variants, report which works (no DB write)
 
   const sb = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -151,25 +124,70 @@ Deno.serve(async (req) => {
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-  try {
-    // Throttle
-    const { data: state } = await sb.from("cosec_sync_state").select("*").eq("id", 1).maybeSingle();
-    if (!force && !debug && state?.last_sync) {
-      const age = Date.now() - new Date(state.last_sync).getTime();
-      if (age < THROTTLE_MS) {
-        return json({ ok: true, skipped: true, last_sync: state.last_sync, last_status: state.last_status });
-      }
+  // Build a COSEC URL for a given date by appending a candidate param.
+  // Matrix COSEC variants differ by firmware; these are the common ones.
+  function urlForDate(base: string, dateStr: string, variant: string): string {
+    const sep = base.includes("?") ? "&" : "?";
+    // dateStr is YYYY-MM-DD; COSEC often wants DD/MM/YYYY
+    const [y, m, d] = dateStr.split("-");
+    const dmy = d + "/" + m + "/" + y;
+    switch (variant) {
+      case "date-dmy":   return base + sep + "date=" + encodeURIComponent(dmy);
+      case "date-ymd":   return base + sep + "date=" + dateStr;
+      case "from-to-dmy":return base + sep + "from-date=" + encodeURIComponent(dmy) + "&to-date=" + encodeURIComponent(dmy);
+      case "fromto-ymd": return base + sep + "fromdate=" + dateStr + "&todate=" + dateStr;
+      case "processdate":return base + sep + "process-date=" + encodeURIComponent(dmy);
+      default:           return base;
     }
+  }
 
+  try {
     const cosecUrl = Deno.env.get("COSEC_URL");
     const user = Deno.env.get("COSEC_USER");
     const pass = Deno.env.get("COSEC_PASS");
     if (!cosecUrl || !user || !pass) {
       return json({ ok: false, error: "Missing COSEC_URL / COSEC_USER / COSEC_PASS secrets" }, 500);
     }
+    const auth = { Authorization: "Basic " + btoa(user + ":" + pass) };
 
-    const res = await fetch(cosecUrl, {
-      headers: { Authorization: "Basic " + btoa(user + ":" + pass) },
+    // ── PROBE MODE: discover which date parameter the API accepts ──
+    if (probe) {
+      const variants = ["date-dmy", "date-ymd", "from-to-dmy", "fromto-ymd", "processdate"];
+      const results: Record<string, unknown> = {};
+      for (const v of variants) {
+        try {
+          const u = urlForDate(cosecUrl, probe, v);
+          const r = await fetch(u, { headers: auth, signal: AbortSignal.timeout(20000) });
+          const t = await r.text();
+          const recs = parseCosec(t);
+          const withPunch = recs.filter((x) => x.first_in).length;
+          results[v] = {
+            http: r.status,
+            rows: recs.length,
+            withPunch,
+            firstDate: recs[0]?.att_date || null,
+            sample: t.substring(0, 200),
+          };
+        } catch (e) {
+          results[v] = { error: e instanceof Error ? e.message : String(e) };
+        }
+      }
+      return json({ ok: true, probe, results });
+    }
+
+    // Throttle (only for the normal "today" auto-sync)
+    const { data: state } = await sb.from("cosec_sync_state").select("*").eq("id", 1).maybeSingle();
+    if (!force && !debug && !reqDate && state?.last_sync) {
+      const age = Date.now() - new Date(state.last_sync).getTime();
+      if (age < THROTTLE_MS) {
+        return json({ ok: true, skipped: true, last_sync: state.last_sync, last_status: state.last_status });
+      }
+    }
+
+    const targetUrl = reqDate ? urlForDate(cosecUrl, reqDate, reqVariant || Deno.env.get("COSEC_DATE_VARIANT") || "date-dmy") : cosecUrl;
+
+    const res = await fetch(targetUrl, {
+      headers: auth,
       signal: AbortSignal.timeout(20000),
     });
     const raw = await res.text();
@@ -183,20 +201,20 @@ Deno.serve(async (req) => {
     }
 
     const recs = parseCosec(raw);
+    // When pulling a specific historical date, trust the requested date
+    // (some firmwares omit the date column on per-date queries).
+    if (reqDate) recs.forEach((r) => { r.att_date = reqDate; });
     let upserted = 0;
     if (recs.length) {
-      const rows = recs.map((r) => {
-        const sorted = [...r.times].sort();
-        return {
-          emp_id: r.emp_id.replace(/^0+(?=\d{3})/, (m) => m), // keep leading zeros as-is
-          att_date: r.att_date,
-          first_in: sorted[0] || null,
-          last_out: sorted.length > 1 ? sorted[sorted.length - 1] : null,
-          punch_count: sorted.length,
-          punches: sorted,
-          synced_at: new Date().toISOString(),
-        };
-      });
+      const rows = recs.map((r) => ({
+        emp_id: r.emp_id,
+        att_date: r.att_date,
+        first_in: r.first_in,
+        last_out: r.last_out,
+        punch_count: r.punch_count,
+        punches: r.punches,
+        synced_at: new Date().toISOString(),
+      }));
       const up = await sb.from("attendance").upsert(rows, { onConflict: "emp_id,att_date" });
       if (up.error) throw new Error("Upsert failed: " + up.error.message);
       upserted = rows.length;

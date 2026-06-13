@@ -26,7 +26,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1781279899;
+const APP_VERSION = 1781370694;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -1647,6 +1647,15 @@ let schedUnlocked      = false;
 let schedLockTimer     = null;
 let schedPendingAction = null;
 
+// ── COSEC attendance (face recognition) ──
+var schedAttendance = {};      // "emp_id|date" -> attendance row
+var schedLastSyncInfo = '';
+// Attendance tracking began on this date; before it we have no punch data,
+// so earlier days fall back to the planned shift (never flagged absent).
+var ATT_TRACKING_START = '2026-06-13';
+function schedAttKey(empId, dateStr) { return empId + '|' + dateStr; }
+function schedTodayStr() { return formatDate(new Date()); }
+
 // ── Helpers ──
 function getMonday(d) {
   var dt = new Date(d); var day = dt.getDay();
@@ -1745,6 +1754,121 @@ async function loadSchedData() {
   });
 }
 
+// ── COSEC attendance loading & sync ──
+async function loadAttendance() {
+  var from = formatDate(addDays(schedWeekStart, -7));
+  var to = formatDate(addDays(schedWeekStart, 13));
+  var res = await sb.from('attendance').select('*').gte('att_date', from).lte('att_date', to);
+  schedAttendance = {};
+  (res.data || []).forEach(function(a) { schedAttendance[schedAttKey(a.emp_id, a.att_date)] = a; });
+}
+
+function triggerCosecSync(force) {
+  var btn = document.getElementById('sch-sync-btn');
+  if (btn) { btn.textContent = 'Syncing\u2026'; btn.classList.remove('live','err'); }
+  var syncOk = false;
+  fetch(SUPABASE_URL + '/functions/v1/cosec-sync' + (force ? '?force=1' : ''), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_KEY },
+    body: '{}'
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    syncOk = !!(d && d.ok);
+    schedLastSyncInfo = syncOk ? ('Live \u00B7 ' + new Date().toTimeString().substring(0,5)) : 'Offline';
+  })
+  .catch(function() { schedLastSyncInfo = 'Offline'; })
+  .then(function() { return loadAttendance(); })
+  .catch(function(){})
+  .then(function() {
+    if (btn) { btn.textContent = schedLastSyncInfo || 'Live'; btn.classList.add(syncOk ? 'live' : 'err'); }
+    if (activeStation === SCHED_KEY) { if (schedView === 'week') renderSchedWeek(); else renderSchedDay(); }
+  });
+}
+function schedForceSync() { triggerCosecSync(true); }
+
+// Resolve attendance state for a staff member on a date.
+function schedAttState(staff, dateStr) {
+  if (!staff.emp_id) return { kind: 'none' };
+  var rrow = schedRoster[schedRosterKey(staff.id, dateStr)];
+  var scheduled = (!rrow || rrow.status === 'working');
+  var a = schedAttendance[schedAttKey(staff.emp_id, dateStr)];
+  var isToday = dateStr === schedTodayStr();
+  var isPast = dateStr < schedTodayStr();
+
+  if (a && a.first_in) {
+    var effOut = a.last_out || a.manual_out || null;
+    if (effOut) {
+      return { kind: 'done', in: a.first_in, out: effOut,
+               manual: !a.last_out && !!a.manual_out, hours: calcHours(a.first_in, effOut) };
+    }
+    if (isToday) return { kind: 'in', in: a.first_in };
+    var pe = rrow ? formatTime(rrow.shift_end) : '';
+    return { kind: 'open', in: a.first_in, plannedEnd: pe };
+  }
+  if (scheduled && (isPast || isToday) && dateStr >= ATT_TRACKING_START) {
+    if (isPast) return { kind: 'absent' };
+    if (rrow && rrow.shift_start) {
+      var now = new Date();
+      var nowM = now.getHours() * 60 + now.getMinutes();
+      var sp = String(rrow.shift_start).substring(0,5).split(':');
+      var startM = parseInt(sp[0]) * 60 + parseInt(sp[1] || 0);
+      if (nowM > startM + 15 && nowM < startM + 720) return { kind: 'absent' };
+    }
+  }
+  return { kind: 'none' };
+}
+
+// Effective hours: actual when completed (today/past), else planned.
+function schedEffHours(staff, dateStr) {
+  var rr = schedRoster[schedRosterKey(staff.id, dateStr)];
+  if (rr && rr.status !== 'working') return 0;
+  var att = schedAttState(staff, dateStr);
+  if (att.kind === 'done') return att.hours;
+  if (att.kind === 'in' || att.kind === 'open' || att.kind === 'absent') return 0;
+  var ts = rr ? formatTime(rr.shift_start) : '';
+  var te = rr ? formatTime(rr.shift_end) : '';
+  if (!ts || !te) return 0;
+  return calcHours(ts, te, rr ? formatTime(rr.shift_start2) : '', rr ? formatTime(rr.shift_end2) : '');
+}
+
+// Close an open shift (past day, no clock-out) using planned end. Lock-gated.
+function schedCloseShift(event, staffId, dateStr) {
+  event.stopPropagation();
+  if (!schedGuard(function(){ schedCloseShift(event, staffId, dateStr); })) return;
+  var staff = schedStaff.find(function(s){ return s.id === staffId; });
+  if (!staff || !staff.emp_id) return;
+  var rrow = schedRoster[schedRosterKey(staffId, dateStr)];
+  var plannedEnd = rrow ? formatTime(rrow.shift_end) : '';
+  var a = schedAttendance[schedAttKey(staff.emp_id, dateStr)];
+  if (!a || !a.first_in) return;
+  var out = prompt('Close shift for ' + staff.name + ' on ' + dateStr +
+    '\nClocked in at ' + a.first_in + '. Clock-out time (planned end pre-filled):', plannedEnd || '00:00');
+  if (out === null) return;
+  out = out.trim();
+  if (!/^\d{1,2}:\d{2}$/.test(out)) { alert('Please use HH:MM (e.g. 00:00)'); return; }
+  a.manual_out = out; a.closed_at = new Date().toISOString();
+  renderSchedView();
+  sb.from('attendance').update({ manual_out: out, closed_by: 'manager', closed_at: a.closed_at })
+    .eq('emp_id', staff.emp_id).eq('att_date', dateStr)
+    .then(function(res){ if (res.error) console.error('Close shift error:', res.error); });
+}
+
+// Inline edit of COSEC employee ID. Lock-gated.
+function schedEditEmpId(event, staffId) {
+  event.stopPropagation();
+  if (!schedGuard(function(){ schedEditEmpId(event, staffId); })) return;
+  var staff = schedStaff.find(function(s){ return s.id === staffId; });
+  if (!staff) return;
+  var v = prompt('Employee ID (COSEC) for ' + staff.name + '\nLeave empty = no clock-in tracking:', staff.emp_id || '');
+  if (v === null) return;
+  v = (v || '').trim();
+  staff.emp_id = v || null;
+  renderSchedWeek();
+  sb.from('staff').update({ emp_id: v || null }).eq('id', staffId)
+    .then(function(res){ if (res.error) { console.error('Emp ID update error:', res.error); loadSchedData().then(renderSchedWeek); } });
+}
+
 // ── Realtime ──
 function subscribeSchedRealtime() {
   if (schedRTChannel) return;
@@ -1784,9 +1908,15 @@ async function openScheduling() {
   document.getElementById('foot-label').textContent = 'Scheduling';
   if (!schedWeekStart) schedWeekStart = getMonday(new Date());
   schedUpdateLockBtn();
-  await loadSchedData();
+  await Promise.all([loadSchedData(), loadAttendance()]);
   subscribeSchedRealtime();
   renderSchedView();
+  triggerCosecSync(false);
+  if (!window.schedAttTimer) {
+    window.schedAttTimer = setInterval(function() {
+      if (activeStation === SCHED_KEY) triggerCosecSync(false);
+    }, 5 * 60 * 1000);
+  }
 }
 
 // ── Navigation ──
@@ -1854,9 +1984,10 @@ function renderSchedWeek() {
         var wHours = 0, wDays = 0;
 
         html += '<tr>';
-        html += '<td class="sch-td-name">' +
+        html += '<td class="sch-td-name" onclick="schedEditEmpId(event,\'' + sid + '\')" title="Tap to set employee ID" style="cursor:pointer">' +
           '<span class="sch-del-btn" onclick="schedConfirmDelete(event,\'' + sid + '\')" title="Remove">×</span>' +
-          staff.name + '</td>';
+          staff.name +
+          (staff.emp_id ? '<span class="sch-emp-id">' + staff.emp_id + '</span>' : '') + '</td>';
         html += '<td class="sch-td-role" onclick="schedEditRole(event,\'' + sid + '\')" title="Click to edit" style="cursor:pointer">' +
           staff.designation + ' <span style="opacity:.3;font-size:10px">✎</span></td>';
 
@@ -1869,13 +2000,34 @@ function renderSchedWeek() {
           if (!rrow || rrow.status === 'working') {
             var ts = rrow ? formatTime(rrow.shift_start) : '';
             var te = rrow ? formatTime(rrow.shift_end) : '';
-            var h = calcHours(ts, te, rrow ? formatTime(rrow.shift_start2) : '', rrow ? formatTime(rrow.shift_end2) : '');
-            if (ts && te) { wHours += h; wDays++; }
             var ts2 = rrow ? formatTime(rrow.shift_start2) : '';
             var te2 = rrow ? formatTime(rrow.shift_end2)   : '';
-            var splitLabel = (ts2 && te2) ? '<br><span style="opacity:.6;font-size:9px">' + ts2 + '–' + te2 + '</span>' : '';
-            html += '<div class="sch-shift working">' +
-              (ts && te ? ts + '<br>' + te + splitLabel : '<span style="color:#bbb;font-size:10px">+ add</span>') + '</div>';
+            var plannedH = calcHours(ts, te, ts2, te2);
+            var att = schedAttState(staff, ds2);
+
+            if (att.kind === 'done') {
+              wHours += att.hours; wDays++;
+              html += '<div class="sch-shift actual">' + att.in + '<br>' + att.out +
+                (att.manual ? '<span class="sch-actual-tag">closed</span>' : '') + '</div>';
+            } else if (att.kind === 'in') {
+              wDays++;
+              html += '<div class="sch-shift actual-live">' + att.in + '<br>' +
+                '<span class="sch-actual-open">working</span></div>';
+            } else if (att.kind === 'open') {
+              wDays++;
+              html += '<div class="sch-shift actual-open-flag" onclick="schedCloseShift(event,\'' + sid + '\',\'' + ds2 + '\')">' +
+                att.in + '<br><span class="sch-actual-close">tap to close</span></div>';
+            } else if (att.kind === 'absent') {
+              wDays++;
+              html += '<div class="sch-shift actual-absent">' +
+                (ts && te ? ts + '<br>' + te : '') +
+                '<span class="sch-actual-tag">no clock-in</span></div>';
+            } else {
+              if (ts && te) { wHours += plannedH; wDays++; }
+              var splitLabel = (ts2 && te2) ? '<br><span style="opacity:.6;font-size:9px">' + ts2 + '–' + te2 + '</span>' : '';
+              html += '<div class="sch-shift working">' +
+                (ts && te ? ts + '<br>' + te + splitLabel : '<span style="color:#bbb;font-size:10px">+ add</span>') + '</div>';
+            }
           } else {
             var meta = STATUS_META[rrow.status] || { label: rrow.status.toUpperCase(), bg: 'off' };
             if (rrow.status !== 'off') wDays++;
@@ -1919,33 +2071,18 @@ function renderSchedWeek() {
 
   html += '</tbody>';
 
-  // Week summary row — total hours per day + grand total
+  // Week summary row — effective hours (actual for today/past, planned future)
   html += '<tfoot><tr class="sch-summary-row"><td class="sum-label">Total hours</td><td></td>';
+  var grandTotal = 0;
   for (var sumDi = 0; sumDi < days.length; sumDi++) {
     var sumDs = formatDate(days[sumDi]);
     var dayTotal = 0;
-    schedStaff.forEach(function(s) {
-      var rr = schedRoster[schedRosterKey(s.id, sumDs)];
-      if (!rr || rr.status === 'working') {
-        var ts = rr ? formatTime(rr.shift_start) : '';
-        var te = rr ? formatTime(rr.shift_end) : '';
-        if (ts && te) dayTotal += calcHours(ts, te, rr ? formatTime(rr.shift_start2) : '', rr ? formatTime(rr.shift_end2) : '');
-      }
-    });
+    schedStaff.forEach(function(s) { dayTotal += schedEffHours(s, sumDs); });
+    dayTotal = Math.round(dayTotal * 10) / 10;
+    grandTotal += dayTotal;
     html += '<td>' + (dayTotal > 0 ? dayTotal + 'h' : '—') + '</td>';
   }
-  // Grand total
-  var grandTotal = 0;
-  schedStaff.forEach(function(s) {
-    for (var gi = 0; gi < days.length; gi++) {
-      var rr = schedRoster[schedRosterKey(s.id, formatDate(days[gi]))];
-      if (!rr || rr.status === 'working') {
-        var ts = rr ? formatTime(rr.shift_start) : '';
-        var te = rr ? formatTime(rr.shift_end) : '';
-        if (ts && te) grandTotal += calcHours(ts, te, rr ? formatTime(rr.shift_start2) : '', rr ? formatTime(rr.shift_end2) : '');
-      }
-    }
-  });
+  grandTotal = Math.round(grandTotal * 10) / 10;
   html += '<td>' + (grandTotal > 0 ? grandTotal + 'h' : '—') + '</td><td>—</td><td></td></tr></tfoot>';
 
   html += '</table>';
@@ -1977,18 +2114,34 @@ function renderSchedDay() {
       var row = schedRoster[schedRosterKey(staff.id, today)];
       var ts = row ? formatTime(row.shift_start) : '';
       var te = row ? formatTime(row.shift_end) : '';
-      var h = calcHours(ts, te);
+      var att = schedAttState(staff, today);
+      var attTxt = '', attCls = '';
+      if (att.kind === 'done') { attTxt = 'Worked ' + att.in + '–' + att.out; attCls = 'sch-att-out'; }
+      else if (att.kind === 'in') { attTxt = 'In ' + att.in; attCls = 'sch-att-in'; }
+      else if (att.kind === 'open') { attTxt = 'In ' + att.in + ' · no clock-out'; attCls = 'sch-att-miss'; }
+      else if (att.kind === 'absent') { attTxt = 'No clock-in'; attCls = 'sch-att-miss'; }
+      var hVal = (att.kind === 'done') ? att.hours : calcHours(ts, te);
       sections += '<div class="sch-day-row">' +
         '<span class="sch-day-name">' + staff.name + '</span>' +
         '<span class="sch-day-role">' + staff.designation + '</span>' +
         '<span class="sch-day-shift">' + (ts && te ? ts + ' – ' + te : '<em style="color:#bbb">No time set</em>') + '</span>' +
-        '<span class="sch-day-hours">' + (h > 0 ? h + 'h' : '') + '</span>' +
+        '<span class="sch-day-hours">' + (hVal > 0 ? hVal + 'h' : '') + '</span>' +
+        '<span class="sch-day-att' + (attTxt ? ' sch-att ' + attCls : '') + '">' + attTxt + '</span>' +
         '</div>';
     });
     sections += '</div>';
   });
+  var clockedIn = 0;
+  schedStaff.forEach(function(s) {
+    if (!s.emp_id) return;
+    var a = schedAttendance[schedAttKey(s.emp_id, today)];
+    if (a && a.first_in && !a.last_out && !a.manual_out) clockedIn++;
+  });
   document.getElementById('sch-day-content').innerHTML =
-    '<div style="margin-bottom:12px;font-size:13px;color:var(--vino-light)">' + total + ' staff in today</div>' + sections;
+    '<div style="margin-bottom:12px;font-size:13px;color:var(--vino-light)">' + total + ' staff in today' +
+    ' \u00B7 <span style="color:#4a7c59;font-weight:600">' + clockedIn + ' clocked in</span>' +
+    (schedLastSyncInfo ? ' \u00B7 <span style="opacity:.55;font-size:12px">' + schedLastSyncInfo + '</span>' : '') +
+    '</div>' + sections;
 }
 
 // ── Edit modal ──
