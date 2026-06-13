@@ -332,6 +332,21 @@ function teamListHTML() {
   var html = '<div class="team-wrap"><div class="team-head">';
   html += '<div class="team-title">'+Tui('title')+'<span class="team-corner" id="team-corner" onclick="teamCornerTap()"></span></div>';
   html += '<div class="team-sub">'+Tui('intro')+'</div></div>';
+  // deadline banner — nudges Danilo/Antonio as 20 June approaches (shows when app is opened)
+  if (teamCompletionLoaded) {
+    var cc = teamCompletionPct();
+    var pending = cc.total - cc.done;
+    var dl = new Date(TEAM_ROUND.deadline+'T23:59:59');
+    var now = new Date();
+    var daysLeft = Math.ceil((dl - now) / 86400000);
+    if (pending > 0 && daysLeft <= 3) {
+      var cls, msg;
+      if (daysLeft < 0) { cls='overdue'; msg='OVERDUE — '+pending+' still not done. Deadline was '+teamFmtDate(TEAM_ROUND.deadline)+'.'; }
+      else if (daysLeft === 0) { cls='today'; msg='DEADLINE TODAY — '+pending+' still need to finish the survey.'; }
+      else { cls='soon'; msg=daysLeft+' day'+(daysLeft===1?'':'s')+' left — '+pending+' still to complete by '+teamFmtDate(TEAM_ROUND.deadline)+'.'; }
+      html += '<div class="team-deadline '+cls+'">⏰ '+msg+'</div>';
+    }
+  }
   // completion strip — visible to everyone so the team sees progress; drives Danilo's task
   if (teamCompletionLoaded) {
     var c = teamCompletionPct();
