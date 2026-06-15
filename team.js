@@ -849,10 +849,12 @@ function teamCornerTap() {
 function toggleHomePanel(which){
   var panel = document.getElementById(which + '-panel');
   var chev  = document.getElementById(which + '-chev');
+  var sect  = document.getElementById(which + '-section');
   if (!panel) return;
   var isOpen = panel.style.display !== 'none' && panel.style.display !== '';
   panel.style.display = isOpen ? 'none' : 'grid';
   if (chev) chev.classList.toggle('open', !isOpen);
+  if (sect) sect.classList.toggle('open', !isOpen);
 }
 
 // ── Inject survey completion card into the Dashboard (non-invasive wrapper) ──
