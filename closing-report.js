@@ -369,11 +369,26 @@ function crRemoveEntry(idx) {
 }
 
 // ── Submit ──
+async function crFetchChecklistCounts(sd) {
+  try {
+    var res = await sb.from('chef_checks').select('status').eq('service_date', sd);
+    if (res.error) throw res.error;
+    var rows = res.data || [];
+    var done = rows.filter(function(r){ return r.status && r.status !== 'none'; }).length;
+    var attention = rows.filter(function(r){ return r.status === 'discard'; }).length;
+    return { done: done, attention: attention };
+  } catch(e) {
+    console.warn('[closing] checklist count failed', e);
+    return { done: 0, attention: 0 };
+  }
+}
+
 async function crSubmit() {
   crCollectFields();
   var btn = document.getElementById('cr-submit-btn');
   btn.disabled = true; btn.textContent = 'Saving…';
   var sd = getServiceDate();
+  var crChecks = await crFetchChecklistCounts(sd);
   try {
     var row = {
       service_date: sd,
@@ -385,6 +400,8 @@ async function crSubmit() {
       briefing_boh: crDraft.briefing_boh || null,
       general_feedback: crDraft.feedback || null,
       submitted_by: crDraft.submitted_by || null,
+      checks_done: crChecks.done,
+      checks_attention: crChecks.attention,
       updated_at: new Date().toISOString()
     };
     var res = await sb.from('closing_reports').upsert(row, { onConflict: 'service_date' }).select().single();
@@ -415,7 +432,7 @@ async function crSubmit() {
       var er = await fetch(SUPABASE_URL + '/functions/v1/send-closing-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_KEY },
-        body: JSON.stringify({ subject: 'Closing Report — ' + new Date(sd + 'T12:00:00').toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'}), html: crBuildEmailHtml(sd) })
+        body: JSON.stringify({ subject: 'Closing Report — ' + new Date(sd + 'T12:00:00').toLocaleDateString('en-GB', {weekday:'long', day:'numeric', month:'long', year:'numeric'}), html: crBuildEmailHtml(sd, crChecks) })
       });
       emailOk = er.ok;
     } catch(e) { console.warn('[closing] email failed', e); }
@@ -430,7 +447,12 @@ async function crSubmit() {
   }
 }
 
-function crBuildEmailHtml(sd) {
+function crBuildEmailHtml(sd, checks) {
+  checks = checks || { done: 0, attention: 0 };
+  var chkBelow = checks.done < 10;
+  var chkFlag = chkBelow ? ' ⚠️ below 10 minimum' : ' ✅';
+  var chkAtt = checks.attention === 1 ? '1 needs attention' : checks.attention + ' need attention';
+  var chkLine = checks.done + ' checked · ' + chkAtt + chkFlag;
   var dLabel = new Date(sd + 'T12:00:00').toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
   var faces = ['😖','😕','😐','🙂','🔥'];
   function section(title, inner){ return '<h3 style="font-family:Georgia,serif;color:#410207;margin:18px 0 6px;font-size:16px">' + title + '</h3>' + inner; }
@@ -455,6 +477,7 @@ function crBuildEmailHtml(sd) {
     + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Chefs on duty</strong></td><td>' + (crChefsOn.join(', ') || '—') + '</td></tr>'
     + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Not on duty</strong></td><td>' + (crChefsOff.join(', ') || '—') + '</td></tr>'
     + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Report by</strong></td><td>' + (crDraft.submitted_by || '—') + '</td></tr>'
+    + '<tr><td style="padding:3px 0;color:#7a1218"><strong>Checklist</strong></td><td' + (chkBelow ? ' style="color:#b00"' : '') + '>' + chkLine + '</td></tr>'
     + '</table>'
     + section('⚠️ Complaints', entryHtml('complaint'))
     + section('🚫 86 / Not available', entryHtml('unavailable'))
@@ -506,6 +529,7 @@ async function crLoadHistory() {
         + '<div class="cr-hist-meta">'
         + (r.revenue_aed ? 'AED ' + Number(r.revenue_aed).toLocaleString() + ' · ' : '')
         + nC + ' complaints · ' + n86 + ' items 86'
+        + (r.checks_done != null ? ' · ' + r.checks_done + ' checked' + (r.checks_done < 10 ? ' ⚠️' : '') : '')
         + (r.chefs_on_duty && r.chefs_on_duty.length ? ' · ' + r.chefs_on_duty.join(', ') : '')
         + '</div>'
         + (r.general_feedback ? '<div class="cr-hist-meta" style="margin-top:4px;font-style:italic">' + crEsc(r.general_feedback.substring(0,140)) + (r.general_feedback.length>140?'…':'') + '</div>' : '')
