@@ -199,64 +199,6 @@ Deno.serve(async (req) => {
       return json({ ok: true, probe, results });
     }
 
-    // ── DISCOVER MODE: find which COSEC endpoint serves a chosen past date ──
-    // Read-only. Writes nothing. Knocks on the common Matrix COSEC v2 report
-    // endpoints (besides attendance-daily) and, for each, tries action=get with
-    // and without a date param, reporting HTTP status + a sample of the body so
-    // we can see which endpoint returns real punches for the requested date.
-    if (url.searchParams.get("discover")) {
-      const wantDate = url.searchParams.get("discover")!; // YYYY-MM-DD
-      const [yy, mm, dd] = wantDate.split("-");
-      const dmy = dd + "/" + mm + "/" + yy;
-      // Derive the API base (strip the trailing "attendance-daily?...":
-      const base = (cosecUrl.split("/v2/")[0] || "") + "/v2/";
-      // Endpoints commonly present on Matrix COSEC v2 firmwares:
-      const endpoints = [
-        "attendance-transaction",
-        "attendance-monthly",
-        "attendance-muster",
-        "attendance-summary",
-        "events",
-        "event",
-        "punch",
-        "punch-log",
-        "transaction",
-        "raw-punch",
-        "attendance-daily",  // include as control
-      ];
-      // Date param shapes to try against each endpoint:
-      const dateParams = [
-        "",                                              // no date (control)
-        "&date=" + encodeURIComponent(dmy),
-        "&date=" + wantDate,
-        "&from-date=" + encodeURIComponent(dmy) + "&to-date=" + encodeURIComponent(dmy),
-        "&fromdate=" + wantDate + "&todate=" + wantDate,
-        "&from=" + encodeURIComponent(dmy) + "&to=" + encodeURIComponent(dmy),
-      ];
-      const out: Record<string, unknown> = {};
-      for (const ep of endpoints) {
-        const epRes: Record<string, unknown> = {};
-        for (const dp of dateParams) {
-          const u = base + ep + "?action=get" + dp;
-          try {
-            const r = await fetch(u, { headers: auth, signal: AbortSignal.timeout(12000) });
-            const t = await r.text();
-            const looksFail = /invalid command|not found|error|unauthor/i.test(t.substring(0, 120));
-            epRes[dp || "(no-date)"] = {
-              http: r.status,
-              bytes: t.length,
-              fail: looksFail,
-              sample: t.substring(0, 160).replace(/\r?\n/g, " "),
-            };
-          } catch (e) {
-            epRes[dp || "(no-date)"] = { error: e instanceof Error ? e.message : String(e) };
-          }
-        }
-        out[ep] = epRes;
-      }
-      return json({ ok: true, discover: wantDate, base, results: out });
-    }
-
     // Throttle (only for the normal "today" auto-sync)
     const { data: state } = await sb.from("cosec_sync_state").select("*").eq("id", 1).maybeSingle();
     if (!force && !debug && !reqDate && state?.last_sync) {
