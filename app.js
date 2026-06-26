@@ -1629,6 +1629,7 @@ const STATUS_META = {
   off:     { label: 'OFF', bg: 'off' },
   wo:      { label: 'WO',  bg: 'wo' },
   sl:      { label: 'SL',  bg: 'sl' },
+  ul:      { label: 'UL',  bg: 'ul' },
   al:      { label: 'AL',  bg: 'al' },
   ph:      { label: 'PH',  bg: 'ph' },
   em:      { label: 'EM',  bg: 'em' },
