@@ -1848,17 +1848,33 @@ function schedAttState(staff, dateStr) {
   var isPast = dateStr < schedTodayStr();
 
   if (a && a.first_in) {
-    // manual override wins over the machine punch — matches FOH, so a manager's
-    // correction of a wrong/missing clock-out actually takes effect (previously
-    // the machine last_out won and a manual fix on the kitchen schedule did nothing).
-    var effOut = a.manual_out || a.last_out || null;
-    if (effOut) {
-      return { kind: 'done', in: a.first_in, out: effOut,
-               manual: !!a.manual_out, hours: calcHours(a.first_in, effOut) };
+    // Build worked segments from the full punch list. Split shifts carry >2 punches
+    // (1st=in, 2nd=out, 3rd=in, 4th=out…); legacy rows with only first_in/last_out
+    // fall back to a single segment. A manual_out correction closes the final segment
+    // (matches FOH: a manager's fix of a wrong/missing clock-out actually takes effect).
+    var rawP = (a.punches && a.punches.length >= 2) ? a.punches.slice() : null;
+    if (!rawP) {
+      var effOut0 = a.manual_out || a.last_out || null;
+      rawP = effOut0 ? [a.first_in, effOut0] : [a.first_in];
     }
-    if (isToday) return { kind: 'in', in: a.first_in };
+    var segs = [];
+    for (var pi = 0; pi < rawP.length; pi += 2) {
+      segs.push({ in: rawP[pi], out: (pi + 1 < rawP.length) ? rawP[pi + 1] : null });
+    }
+    if (a.manual_out) segs[segs.length - 1].out = a.manual_out;
+    var lastSeg = segs[segs.length - 1];
+    var hrs = 0;
+    segs.forEach(function (s) { if (s.in && s.out) hrs += calcHours(s.in, s.out); });
+    hrs = Math.round(hrs * 10) / 10;
+    var isSplit = segs.length > 1;
+
+    if (lastSeg.out) {
+      return { kind: 'done', in: a.first_in, out: lastSeg.out, segs: segs,
+               split: isSplit, manual: !!a.manual_out, hours: hrs };
+    }
+    if (isToday) return { kind: 'in', in: a.first_in, segs: segs, split: isSplit, hours: hrs };
     var pe = rrow ? formatTime(rrow.shift_end) : '';
-    return { kind: 'open', in: a.first_in, plannedEnd: pe };
+    return { kind: 'open', in: a.first_in, segs: segs, split: isSplit, hours: hrs, plannedEnd: pe };
   }
   if (scheduled && (isPast || isToday) && dateStr >= ATT_TRACKING_START) {
     if (isPast) return { kind: 'absent' };
@@ -2104,8 +2120,14 @@ function renderSchedWeek() {
 
             if (att.kind === 'done') {
               wHours += att.hours; wDays++;
-              html += '<div class="sch-shift actual"><span>' + att.in + '</span><span>' + att.out + '</span>' +
+              if (att.split) {
+                html += '<div class="sch-shift actual sch-split">' +
+                  att.segs.map(function(s){ return '<span class="sch-seg">' + s.in + '–' + (s.out || '·') + '</span>'; }).join('') +
+                  (att.manual ? '<span class="sch-actual-tag">closed</span>' : '') + '</div>';
+              } else {
+                html += '<div class="sch-shift actual"><span>' + att.in + '</span><span>' + att.out + '</span>' +
                 (att.manual ? '<span class="sch-actual-tag">closed</span>' : '') + '</div>';
+              }
             } else if (att.kind === 'in') {
               wDays++;
               html += '<div class="sch-shift actual-live"><span>' + att.in + '</span>' +
@@ -2213,7 +2235,12 @@ function renderSchedDay() {
       var te = row ? formatTime(row.shift_end) : '';
       var att = schedAttState(staff, today);
       var attTxt = '', attCls = '';
-      if (att.kind === 'done') { attTxt = 'Worked ' + att.in + '–' + att.out; attCls = 'sch-att-out'; }
+      if (att.kind === 'done') {
+        attTxt = att.split
+          ? 'Worked ' + att.segs.map(function(s){ return s.in + '–' + (s.out || '·'); }).join(', ')
+          : 'Worked ' + att.in + '–' + att.out;
+        attCls = 'sch-att-out';
+      }
       else if (att.kind === 'in') { attTxt = 'In ' + att.in; attCls = 'sch-att-in'; }
       else if (att.kind === 'open') { attTxt = 'In ' + att.in + ' · no clock-out'; attCls = 'sch-att-miss'; }
       else if (att.kind === 'absent') { attTxt = 'No clock-in'; attCls = 'sch-att-miss'; }
