@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1782950000;
+const APP_VERSION = 1782960000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -2097,9 +2097,12 @@ function renderSchedWeek() {
         var sid = staff.id;
         var mpid = 'smp' + sid.replace(/-/g,'');
         var wHours = 0, wDays = 0;
+        var upBtn = xi>0 ? '<span class="sch-ord-btn" onclick="schedMoveStaff(event,\'' + sid + '\',-1)" title="Move up">▲</span>' : '<span class="sch-ord-btn sch-ord-off">▲</span>';
+        var dnBtn = xi<allStaff.length-1 ? '<span class="sch-ord-btn" onclick="schedMoveStaff(event,\'' + sid + '\',1)" title="Move down">▼</span>' : '<span class="sch-ord-btn sch-ord-off">▼</span>';
 
         html += '<tr>';
         html += '<td class="sch-td-name" onclick="schedEditEmpId(event,\'' + sid + '\')" title="Tap to set employee ID" style="cursor:pointer">' +
+          '<span class="sch-ord">' + upBtn + dnBtn + '</span>' +
           '<span class="sch-del-btn" onclick="schedConfirmDelete(event,\'' + sid + '\')" title="Remove">×</span>' +
           staff.name +
           (staff.emp_id ? '<span class="sch-emp-id">' + staff.emp_id + '</span>' : '') + '</td>';
@@ -2616,6 +2619,32 @@ function schedCancelRole(staffId, input) {
 
 
 // ── Delete staff ──
+// ── Reorder staff within a station (↑/↓) ──
+// Renumber a station's members to 1..N by array order; persist only the rows that changed.
+async function schedPersistSectionOrder(orderedMates) {
+  if (DEV_READ_ONLY) return;
+  var updates = [];
+  orderedMates.forEach(function(s, i){ var want = i+1; if (s.sort_order !== want) { s.sort_order = want; updates.push(s); } });
+  for (var i = 0; i < updates.length; i++) {
+    var res = await sb.from('staff').update({ sort_order: updates[i].sort_order }).eq('id', updates[i].id);
+    if (res.error) { console.error('Reorder error:', res.error); loadSchedData().then(renderSchedWeek); return; }
+  }
+}
+function schedMoveStaff(event, staffId, dir) {
+  event.stopPropagation();
+  if (!schedGuard(function(){ schedMoveStaff(event, staffId, dir); })) return;
+  var staff = schedStaff.find(function(s){ return s.id === staffId; });
+  if (!staff) return;
+  var mates = schedStaff.filter(function(s){ return s.station_key === staff.station_key; });
+  var idx = mates.indexOf(staff), swapIdx = idx + dir;
+  if (swapIdx < 0 || swapIdx >= mates.length) return;   // already at the edge
+  var other = mates[swapIdx];
+  var gi = schedStaff.indexOf(staff), gj = schedStaff.indexOf(other);
+  schedStaff[gi] = other; schedStaff[gj] = staff;        // swap slots so render reflects it
+  renderSchedWeek();
+  schedPersistSectionOrder(schedStaff.filter(function(s){ return s.station_key === staff.station_key; }));
+}
+
 function schedConfirmDelete(event, staffId) {
   event.stopPropagation();
   if (!schedGuard(null)) return;
