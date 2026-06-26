@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1782910000;
+const APP_VERSION = 1782950000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -1635,6 +1635,7 @@ const STATUS_META = {
   em:      { label: 'EM',  bg: 'em' },
   tr:      { label: 'TR',  bg: 'tr' },
   cat:     { label: 'CAT', bg: 'cat' },
+  fs:      { label: 'FS',  bg: 'fs' },
 };
 
 let schedWeekStart   = null;
@@ -3018,8 +3019,8 @@ async function schedSendToHR() {
             cell.style = { font:Object.assign({bold:true,color:{argb:'FF'+VINO}},baseFont), fill:{type:'pattern',pattern:'solid',fgColor:{argb:'FF'+LIGHT}}, border:baseBorder, alignment:{horizontal:'center',vertical:'middle'} };
           } else {
             var status = cellStatuses[col-2];
-            var fills = { working:'FFFFFFFF', off:'FFF5F5F5', wo:'FFDBEAFE', sl:'FFFFF3C7', al:'FFD1FAE5', ph:'FFEDE9FE', em:'FFFEE2E2', tr:'FFCCFBF1', cat:'FFFFEDD5', empty:'FFFFFFFF' };
-            var fgColors = { working:'FF333333', off:'FF999999', wo:'FF1e40af', sl:'FF92400e', al:'FF065f46', ph:'FF5b21b6', em:'FF991b1b', tr:'FF134e4a', cat:'FF9a3412', empty:'FFCCCCCC' };
+            var fills = { working:'FFFFFFFF', off:'FFF5F5F5', wo:'FFDBEAFE', sl:'FFFFF3C7', al:'FFD1FAE5', ph:'FFEDE9FE', em:'FFFEE2E2', tr:'FFCCFBF1', cat:'FFFFEDD5', fs:'FFE2E8F0', empty:'FFFFFFFF' };
+            var fgColors = { working:'FF333333', off:'FF999999', wo:'FF1e40af', sl:'FF92400e', al:'FF065f46', ph:'FF5b21b6', em:'FF991b1b', tr:'FF134e4a', cat:'FF9a3412', fs:'FF334155', empty:'FFCCCCCC' };
             cell.style = {
               font: Object.assign({ bold: status !== 'working' && status !== 'empty', color:{argb: fgColors[status]||'FF333333'} }, baseFont),
               fill: { type:'pattern', pattern:'solid', fgColor:{argb: fills[status]||'FFFFFFFF'} },
@@ -3042,6 +3043,15 @@ async function schedSendToHR() {
 
     if (btn) btn.textContent = '📧 Sending...';
 
+    // Re-send detection: if this exact week was already emailed to HR, flag it as an
+    // update so the email says "discard the previous roster, this is the latest version".
+    var isUpdate = false;
+    try {
+      var prior = await sb.from('reset_log').select('id')
+        .eq('app','kitchen').eq('action','roster_send').eq('scope',weekStr).limit(1);
+      isUpdate = !!(prior && prior.data && prior.data.length);
+    } catch(e){ console.warn('[roster] re-send check failed', e); }
+
     // Route through Supabase Edge Function to avoid CORS
     var emailRes = await fetch('https://zrpglswalgjbtghudmhu.supabase.co/functions/v1/send-roster', {
       method: 'POST',
@@ -3052,12 +3062,16 @@ async function schedSendToHR() {
       body: JSON.stringify({
         weekStr: weekStr,
         fileName: fileName,
-        xlsxBase64: xlsxBase64
+        xlsxBase64: xlsxBase64,
+        update: isUpdate
       })
     });
 
     var emailData = await emailRes.json();
     if (!emailRes.ok) throw new Error(emailData.message || 'Email failed: ' + emailRes.status);
+
+    // Record this send so a later re-send of the same week is flagged as an update.
+    try { await sb.from('reset_log').insert({ app:'kitchen', action:'roster_send', scope:weekStr, item_count:null, emp_id:null, emp_name:'Kitchen roster' }); } catch(e){ console.warn('[roster] send not logged', e); }
 
     if (btn) {
       btn.textContent = '✓ Sent to HR';
