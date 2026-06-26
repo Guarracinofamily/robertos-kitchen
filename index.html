@@ -719,7 +719,6 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .team-wrap{max-width:680px;margin:0 auto;padding:20px 18px 60px}
 .team-head{margin-bottom:18px}
 .team-title{font-family:var(--font-serif);font-size:24px;color:var(--vino);font-weight:600;position:relative}
-.team-corner{position:absolute;top:-8px;right:-8px;width:44px;height:44px;cursor:default}
 .team-langbar{margin:0 0 18px}
 .team-langlbl{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--vino-light);margin-bottom:8px}
 .team-langs{display:flex;flex-wrap:wrap;gap:8px}
@@ -1152,7 +1151,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   // These two define their own open* function; the shim loads the file then the
   // real definition replaces this shim and the .then() call runs it.
   function openClosingReport(){ lazyLoad('closing-report.js?v=1782470000').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
-  function openTeam(){ lazyLoad('team.js?v=1781872166').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
+  function openTeam(){ lazyLoad('team.js?v=1782900000').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
   function openStockTake(){ lazyLoad('stock-take.js?v=1782600000').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
   // Home-screen collapsible panels (Daily Operations / Management). MUST be defined
   // eagerly here, NOT in the lazy team.js — both panels need it at page load, and

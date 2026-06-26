@@ -331,7 +331,7 @@ function teamListHTML() {
   var order = ['management','pass','raw_bar','pasta','main','pastry_pizza','stewarding','other'];
   teamStaff.forEach(function(s) { var k=s.station_key||'other'; if(!byStation[k])byStation[k]=[]; byStation[k].push(s); });
   var html = '<div class="team-wrap"><div class="team-head">';
-  html += '<div class="team-title">'+Tui('title')+'<span class="team-corner" id="team-corner" onclick="teamCornerTap()"></span></div>';
+  html += '<div class="team-title">'+Tui('title')+'</div>';
   html += '<div class="team-sub">'+Tui('intro')+'</div></div>';
   // deadline banner — nudges Danilo/Antonio as the deadline approaches (shows when app is opened)
   if (teamCompletionLoaded) {
@@ -826,19 +826,6 @@ function teamAdminHTML(){
   html+='<div class="ta-footer">A short survey points, it does not prove. Strong flags are reliable; soft flags are conversations to have, never verdicts to act on alone. Re-run every 3 months to see who is trending up or down.</div>';
   html+='</div>';
   return html;
-}
-
-// ── Secret admin access: tap the title's top-right corner 5x within 3s ──
-var teamCornerTaps = [];
-function teamCornerTap() {
-  var now = Date.now();
-  teamCornerTaps = teamCornerTaps.filter(function(t){ return now - t < 3000; });
-  teamCornerTaps.push(now);
-  if (teamCornerTaps.length >= 5) {
-    teamCornerTaps = [];
-    teamAdminAnon = false;
-    teamOpenAdmin();
-  }
 }
 
 // ── Home screen collapsible panels (Daily Operations / Management) ──
