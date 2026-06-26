@@ -25,7 +25,7 @@ function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1782900000;
+const APP_VERSION = 1782910000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -2375,7 +2375,13 @@ async function schedSaveShift() {
   renderSchedWeek();
   if (!DEV_READ_ONLY) {
     var res = await sb.from('roster').upsert(payload, { onConflict: 'staff_id,work_date' });
-    if (res.error) console.error('Save error:', res.error);
+    if (res.error) {
+      // Save didn't reach the server — reload the true roster so the cell can't
+      // linger showing an unsaved shift, and tell the manager.
+      console.error('Save error:', res.error);
+      kToast('Shift NOT saved — check connection and try again.', true);
+      loadSchedData().then(renderSchedWeek);
+    }
   }
   schedEditTarget = null;
 }
@@ -2562,6 +2568,7 @@ async function schedMoveStation(staffId, mpid) {
     var res = await sb.from('staff').update({ station_key: targetStation }).eq('id', staffId);
     if (res.error) {
       console.error('Move error:', res.error);
+      kToast('Station move NOT saved — check connection and try again.', true);
       // revert on error
       loadSchedData().then(renderSchedWeek);
     }
@@ -2596,7 +2603,7 @@ async function schedSaveRole(staffId, input) {
   renderSchedWeek();
   if (!DEV_READ_ONLY) {
     var res = await sb.from('staff').update({ designation: newRole }).eq('id', staffId);
-    if (res.error) { console.error('Role update error:', res.error); loadSchedData().then(renderSchedWeek); }
+    if (res.error) { console.error('Role update error:', res.error); kToast('Role NOT saved — check connection and try again.', true); loadSchedData().then(renderSchedWeek); }
   }
 }
 
