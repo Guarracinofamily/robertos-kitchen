@@ -470,9 +470,10 @@ function stSafeRenderRows(){
 // yield badge under the name: shows the grossed-up purchase weight once counted
 function stEffText(it){
   if(!stIsYield(it)) return '';
-  var c=stCounts[it.id];
-  if(!c||c.qty==null) return '<span class="st-eff">'+Math.round(STOCK_YIELD*100)+'% yield</span>';
-  return '<span class="st-eff">'+Math.round(STOCK_YIELD*100)+'% yield · '+stEffQtyRound(it,c.qty)+' '+stEsc(stItemUnit(it))+' purchased</span>';
+  var c=stCounts[it.id], u=stEsc(stItemUnit(it)), p=Math.round(STOCK_YIELD*100);
+  if(!c||c.qty==null) return '<span class="st-eff">'+p+'% yield — count the cleaned weight; the system figure adds '+p+'%</span>';
+  // show BOTH numbers clearly: what was counted vs the number Aung enters
+  return '<span class="st-eff">You counted <b>'+c.qty+'</b> '+u+' · Aung enters <b>'+stEffQtyRound(it,c.qty)+'</b> '+u+' <span style="opacity:.8">(+'+p+'% yield)</span></span>';
 }
 function stUpdateRowUI(itemId){
   var it = stItems.find(function(x){ return x.id===itemId; });
@@ -598,7 +599,9 @@ function stExcelAoa(){
     var price = stItemPrice(it);
     var val = qty==='' ? 0 : Math.round(qty*price*100)/100;
     grand += val;
-    aoa.push([it.item_group||'', it.code||'', it.name, stItemUnit(it), price, qty, val]);
+    // flag yield rows so the Qty (already +30%) is entered as-is, not the weighed amount
+    var name = stIsYield(it) ? it.name+' (Qty incl. '+Math.round(STOCK_YIELD*100)+'% yield)' : it.name;
+    aoa.push([it.item_group||'', it.code||'', name, stItemUnit(it), price, qty, val]);
   });
   aoa.push([]);
   aoa.push(['','','','','','TOTAL', Math.round(grand*100)/100]);
