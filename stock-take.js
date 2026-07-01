@@ -57,7 +57,8 @@ var stCounts  = {};          // item_id -> { qty, unit, counted_by, counted_by_n
 var stUser    = null;        // { emp_id, name }  (null until signed in)
 var stSearch  = '';
 var stCatFilter = '';
-var stOnlyCounted = false;   // "Counted only" tickbox
+var stCountFilter = '';      // '' | 'counted' | 'uncounted' — which items to show
+var stSortBy = '';           // '' | 'value' — highest value first, to spot mis-entries fast
 var stUnitSel = {};          // item_id -> chosen unit (for 2-unit items)
 var stChannel = null;
 
@@ -305,12 +306,16 @@ async function stAddQty(itemId, value){
 // ── derived ──
 function stFilteredItems(){
   var q = stSearch.toLowerCase();
-  return stItems.filter(function(it){
+  var out = stItems.filter(function(it){
     if(stCatFilter && it.item_group !== stCatFilter) return false;
-    if(stOnlyCounted){ var c=stCounts[it.id]; if(!c||c.qty==null) return false; }
+    var c=stCounts[it.id], counted = !!(c && c.qty!=null);
+    if(stCountFilter==='counted' && !counted) return false;
+    if(stCountFilter==='uncounted' && counted) return false;
     if(q && it.name.toLowerCase().indexOf(q)===-1 && String(it.code||'').indexOf(q)===-1) return false;
     return true;
   });
+  if(stSortBy==='value') out = out.slice().sort(function(a,b){ return stLineValue(b)-stLineValue(a); });
+  return out;
 }
 function stCats(){ return Array.from(new Set(stItems.map(function(i){ return i.item_group||'Other'; }))); }
 // quantity shown in reports/Excel — grossed up to purchase weight for yield items
@@ -344,7 +349,6 @@ function stInjectCss(){
     '.st-name{font-size:14px;font-weight:600;color:#2a1a10;line-height:1.25}'+
     '.st-tag{font-size:10px;font-weight:700;color:#7a4a00;background:#f6d79a;border-radius:5px;padding:1px 6px;margin-left:6px}'+
     '.st-eff{display:inline-block;font-size:11px;font-weight:600;color:#7a4a00;background:#f6e3c0;border-radius:5px;padding:1px 6px;margin-top:4px}'+
-    '.st-onlycount{display:flex;align-items:center;gap:6px;font-size:13px;color:#7a6a55;white-space:nowrap}'+
     '.st-danger{color:#7a1218!important;border-color:#d98a8a!important}'+
     '.st-meta{margin-top:4px}'+
     '.st-prev{margin-top:3px;font-size:11px;color:#9a8a6a;font-style:italic}'+
@@ -396,7 +400,15 @@ function stRender(){
     '<div class="st-toolbar">'+
       '<input class="check-input" id="st-search" placeholder="Search items…" value="'+stEsc(stSearch)+'" oninput="stOnSearch(this.value)" style="flex:1;min-width:140px">'+
       '<select class="check-select" id="st-cat" onchange="stOnCat(this.value)">'+cats+'</select>'+
-      '<label class="st-onlycount"><input type="checkbox" id="st-onlycount" '+(stOnlyCounted?'checked':'')+' onchange="stToggleOnlyCounted(this.checked)"> Counted only</label>'+
+      '<select class="check-select" id="st-countfilter" onchange="stOnCountFilter(this.value)">'+
+        '<option value=""'+(stCountFilter===''?' selected':'')+'>All items</option>'+
+        '<option value="counted"'+(stCountFilter==='counted'?' selected':'')+'>Counted only</option>'+
+        '<option value="uncounted"'+(stCountFilter==='uncounted'?' selected':'')+'>Not counted yet</option>'+
+      '</select>'+
+      '<select class="check-select" id="st-sortby" onchange="stOnSort(this.value)">'+
+        '<option value=""'+(stSortBy===''?' selected':'')+'>List order</option>'+
+        '<option value="value"'+(stSortBy==='value'?' selected':'')+'>Highest value first</option>'+
+      '</select>'+
       (stIsSuper()?'<button class="report-btn" onclick="stShowUpload()">Upload month</button>':'')+
     '</div>'+
     '<div class="st-catbar"><span id="st-catlabel">'+(stCatFilter?stEsc(stCatFilter):'All categories')+'</span>'+
@@ -419,11 +431,12 @@ function stRenderRows(){
   var items = stFilteredItems();
   if(!items.length){ c.innerHTML = '<div class="report-no-data">No items match your search.</div>'; return; }
   var locked = !stUser;
+  var flat = stSortBy==='value';   // sorted-by-value is a flat ranked list — category dividers would be meaningless, show the category inline instead
   var html = '';
   var lastCat = null;
   items.forEach(function(it){
     var cat = it.item_group||'Other';
-    if(cat!==lastCat){ html += '<div class="st-cat">'+stEsc(cat)+'</div>'; lastCat = cat; }
+    if(!flat && cat!==lastCat){ html += '<div class="st-cat">'+stEsc(cat)+'</div>'; lastCat = cat; }
     var c2 = stCounts[it.id];
     var qv = (c2&&c2.qty!=null) ? c2.qty : '';
     var multi = Array.isArray(it.units) && it.units.length>1;
@@ -436,6 +449,7 @@ function stRenderRows(){
         '<div class="st-main">'+
           '<div class="st-namecol">'+
             '<div class="st-name">'+stEsc(it.name)+(it.is_added?'<span class="st-tag">added</span>':'')+'</div>'+
+            (flat?'<div class="st-muted" style="margin-top:1px">'+stEsc(cat)+'</div>':'')+
             '<div class="st-meta">'+unitCtl+'<span id="st-eff-'+it.id+'">'+stEffText(it)+'</span></div>'+
             stPrevText(it)+
           '</div>'+
@@ -497,7 +511,8 @@ function stRenderTotals(){
 var stSearchTimer=null;
 function stOnSearch(v){ stSearch=v; clearTimeout(stSearchTimer); stSearchTimer=setTimeout(stRenderRows,120); }
 function stOnCat(v){ stCatFilter=v; stRenderRows(); stRenderTotals(); }
-function stToggleOnlyCounted(v){ stOnlyCounted=!!v; stRenderRows(); }
+function stOnCountFilter(v){ stCountFilter=v; stRenderRows(); }
+function stOnSort(v){ stSortBy=v; stRenderRows(); }
 // wipe EVERY quantity entered for this month (all counters) — confirmed first
 async function stClearAllCounts(){
   if(!stUser){ if(typeof kToast==='function') kToast('Enter your employee ID first.', true); return; }
