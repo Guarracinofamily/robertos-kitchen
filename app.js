@@ -16,7 +16,10 @@ function formatDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padSta
 
 // Service date: before 06:00 still belongs to the previous night's service.
 // Team marks statuses at 23:45 -> saved as Tuesday. Morning team at 07:00 -> reads Tuesday. Clean handover.
+// Uses DUBAI wall-clock (common.js), not the device clock — a tablet with a
+// wrong timezone must not file prep/checklist writes under the wrong night.
 function getServiceDate(){
+  if (typeof RC !== 'undefined' && RC.dubaiBusinessDate) return RC.dubaiBusinessDate(new Date());
   var d = new Date();
   if(d.getHours() < 6){ d.setDate(d.getDate() - 1); }
   return formatDate(d);
@@ -24,8 +27,26 @@ function getServiceDate(){
 function getToday(){ return getServiceDate(); }
 const TODAY = getServiceDate();
 
+// Fetch EVERY row of a query in 1000-row pages. PostgREST caps one response at
+// 1000 rows and silently truncates past it — the bug class that hid clock-ins.
+// Same pattern as stFetchAllPaged in stock-take.js. buildQuery must return a
+// fresh filtered+ordered query each call (a stable order keeps pages aligned).
+async function kFetchAllPaged(buildQuery, pageSize){
+  pageSize = pageSize || 1000;
+  var all = [], from = 0, error = null;
+  for(;;){
+    var res = await buildQuery().range(from, from + pageSize - 1);
+    if (res.error) { error = res.error; break; }
+    var rows = res.data || [];
+    all = all.concat(rows);
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: all, error: error };
+}
+
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1782980000;
+const APP_VERSION = 1783000000;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
@@ -86,16 +107,20 @@ function loadPrepListCache() {
 
 async function loadPrepList() {
   try {
+    // Paged loads: dish_components already runs in the hundreds — the moment it
+    // passes 1000 a plain select would silently drop dishes from the prep list.
     const [r1, r2, r3, r4] = await Promise.all([
-      sb.from('stations').select('*').eq('active', true).order('sort_order'),
-      sb.from('subsections').select('*').eq('active', true).order('sort_order'),
-      sb.from('dishes').select('*').eq('active', true).order('sort_order'),
-      sb.from('dish_components').select('*').eq('active', true).order('sort_order')
+      kFetchAllPaged(() => sb.from('stations').select('*').eq('active', true).order('sort_order').order('id')),
+      kFetchAllPaged(() => sb.from('subsections').select('*').eq('active', true).order('sort_order').order('id')),
+      kFetchAllPaged(() => sb.from('dishes').select('*').eq('active', true).order('sort_order').order('id')),
+      kFetchAllPaged(() => sb.from('dish_components').select('*').eq('active', true).order('sort_order').order('id'))
     ]);
-    const stationsData   = r1.data;
-    const subsectionsData = r2.data;
-    const dishesData     = r3.data;
-    const componentsData = r4.data;
+    // A load that errored is treated as missing (falls into the keep-cache path
+    // below) — never build the prep list from a partially fetched table.
+    const stationsData   = r1.error ? null : r1.data;
+    const subsectionsData = r2.error ? null : r2.data;
+    const dishesData     = r3.error ? null : r3.data;
+    const componentsData = r4.error ? null : r4.data;
 
     // If any query came back null/empty, do NOT wipe STATIONS — keep whatever we have
     if (!stationsData || !subsectionsData || !dishesData || !componentsData) {
@@ -170,7 +195,8 @@ function hidePrepError() {
 // â”€â”€ LOAD TODAY'S STATUS â”€â”€
 async function loadTodayStatus() {
   try {
-    const { data: todayRows } = await sb.from('prep_status').select('*').eq('service_date', TODAY);
+    const todayRes = await kFetchAllPaged(() => sb.from('prep_status').select('*').eq('service_date', TODAY).order('id'));
+    const todayRows = todayRes.data;
 
     if (todayRows && todayRows.length > 0) {
       todayRows.forEach(row => {
@@ -179,6 +205,9 @@ async function loadTodayStatus() {
       });
       return;
     }
+    // A FAILED load must not be mistaken for "day not started": the carryover
+    // below would upsert yesterday's statuses over today's real ones.
+    if (todayRes.error) { console.warn('[loadTodayStatus] load failed — skipping carryover', todayRes.error); return; }
 
     // Today is empty: carry forward OK, SOS and BU from previous service date so the morning % reflects real readiness
     const prevDate = getPreviousServiceDate();
@@ -202,9 +231,17 @@ async function loadTodayStatus() {
       updated_at: new Date().toISOString()
     }));
 
-    await sb.from('prep_status').upsert(newRows, {
+    const up = await sb.from('prep_status').upsert(newRows, {
       onConflict: 'service_date,station_key,subsection_key,dish_name,component_name'
     });
+    if (up.error) {
+      // The carry-forward write didn't reach the server. Don't paint items as
+      // "carried" — the DB has nothing for today, so other screens would diverge.
+      // Leave the board accurate (empty) and let the next load retry.
+      console.warn('[loadTodayStatus] carry-forward upsert failed', up.error);
+      if (typeof kToast === 'function') kToast('Could not carry forward yesterday — reopen to retry.', true);
+      return;
+    }
 
     newRows.forEach(row => {
       state[mkId(row.station_key, row.subsection_key, row.dish_name, row.component_name)] = row.status;
@@ -598,13 +635,96 @@ async function removeChefCheck(id){
   await deleteChefCheck(id);
   renderAfterChefCheckSync();
 }
-// ── Reset-all identity gate (validated against the staff list) ──────────────
-// "Reset all" actions wipe shared data for everyone, so they must not be
-// anonymous or accidental (the 25 Jun crudo reset was an untracked tap).
-// Prompt for an Employee ID, validate it against the active staff list
-// (super-user passcodes allowed, same as stock-take), return {emp_id,name} or null.
+// ── Tap-your-name identity picker (kitchen) ─────────────────────────────────
+// Accountable actions (checklist / station reset, closing report, Send-to-HR,
+// stock-take sign-in) used to ask the user to TYPE an Employee ID. Instead, the
+// team taps their name from the active kitchen `staff` list; an on-brand keypad
+// fallback ("I'm someone else") still accepts a typed Employee ID or a super-
+// user passcode (1212). Resolves to the SAME {emp_id,name} shape the old
+// resetIdentity() returned, so logging / accountability is unchanged.
+//   opts: { superMap, superOnly, codeOnly, title }
 const RESET_SUPER = { '1212': 'Admin' };
-async function resetIdentity(actionLabel){
+function kPickPerson(actionLabel, opts){
+  opts = opts || {};
+  var superMap = opts.superMap || RESET_SUPER;
+  return new Promise(function(resolve){
+    var done=false, people=[], code='';
+    function onKey(e){ if(e.key==='Escape') finish(null); }
+    function finish(v){ if(done) return; done=true; var o=document.getElementById('kpk-ovl'); if(o) o.remove(); document.removeEventListener('keydown',onKey); resolve(v); }
+    function box(){ return document.getElementById('kpk-box'); }
+    function initials(n){ var p=(n||'').trim().split(/\s+/); return (((p[0]||'')[0]||'')+((p[1]||'')[0]||'')).toUpperCase(); }
+    var ov=document.createElement('div'); ov.id='kpk-ovl';
+    ov.setAttribute('style','position:fixed;inset:0;z-index:100050;background:rgba(65,2,7,.55);display:flex;align-items:flex-start;justify-content:center;padding:22px 14px;overflow:auto;');
+    ov.onclick=function(e){ if(e.target===ov) finish(null); };
+    ov.innerHTML='<div id="kpk-box" style="background:var(--cream,#f5ede0);border-radius:14px;max-width:520px;width:100%;padding:18px 18px 16px;box-shadow:0 14px 50px rgba(65,2,7,.35);"><div style="color:#9c8a72;font-size:13px;padding:8px;">Loading…</div></div>';
+    document.body.appendChild(ov);
+    document.addEventListener('keydown',onKey);
+
+    function showNames(filter){
+      var b=box(); if(!b) return;
+      var q=(filter||'').trim().toLowerCase();
+      var useSearch=people.length>8;
+      var html=people.filter(function(p){ return !q || (p.name||'').toLowerCase().indexOf(q)!==-1 || (p.designation||'').toLowerCase().indexOf(q)!==-1; })
+        .map(function(p){ var idx=people.indexOf(p);
+          return '<button class="kpk-name" data-i="'+idx+'" style="display:flex;align-items:center;gap:9px;text-align:left;padding:9px 10px;border:1px solid var(--sabbia-dark,#cfc0ad);border-radius:9px;background:#fff;cursor:pointer;">'
+            +'<span style="width:32px;height:32px;border-radius:50%;background:var(--sabbia,#e1d3c2);color:var(--vino,#410207);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex:none;">'+escHtml(initials(p.name))+'</span>'
+            +'<span style="min-width:0;"><span style="display:block;font-size:14px;font-weight:600;color:var(--ink,#2a1a10);">'+escHtml(p.name||'')+'</span><span style="display:block;font-size:11.5px;color:#8a7a62;">'+escHtml(p.designation||'')+'</span></span></button>';
+        }).join('');
+      b.innerHTML='<div style="font-family:var(--font-serif,Georgia,serif);color:var(--vino,#410207);font-size:22px;">Who’s doing this?</div>'
+        +'<div style="font-size:12.5px;color:#8a7a62;margin:2px 0 12px;">Tap your name to '+escHtml(actionLabel)+'. It’s recorded.</div>'
+        +(useSearch?'<input id="kpk-search" placeholder="Search your name…" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--sabbia-dark,#cfc0ad);border-radius:9px;font-size:15px;margin-bottom:12px;font-family:inherit;">':'')
+        +'<div id="kpk-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;max-height:44vh;overflow:auto;">'+(html||'<div style="color:#9c8a72;font-size:13px;padding:8px;">No match.</div>')+'</div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px;border-top:1px solid var(--sabbia-dark,#cfc0ad);padding-top:12px;">'
+          +'<button id="kpk-other" style="font-size:13px;color:var(--vino,#410207);border:1px solid var(--vino,#410207);background:transparent;border-radius:9px;padding:9px 13px;cursor:pointer;">I’m someone else — use my ID</button>'
+          +'<button id="kpk-cancel" style="font-size:13px;color:#8a7a62;border:1px solid var(--sabbia-dark,#cfc0ad);background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer;">Cancel</button></div>';
+      var s=document.getElementById('kpk-search'); if(s){ s.value=filter||''; s.oninput=function(){ showNames(s.value); }; setTimeout(function(){ try{s.focus();}catch(e){} },20); }
+      var btns=b.querySelectorAll('.kpk-name'); for(var j=0;j<btns.length;j++){ btns[j].onclick=function(){ var pp=people[+this.getAttribute('data-i')]; finish({emp_id: pp.emp_id?String(pp.emp_id):null, name: pp.name}); }; }
+      document.getElementById('kpk-other').onclick=function(){ code=''; showKeypad(); };
+      document.getElementById('kpk-cancel').onclick=function(){ finish(null); };
+    }
+    function showKeypad(){
+      var b=box(); if(!b) return;
+      var cells='';
+      for(var i=0;i<6;i++){ var ch=code[i]; var active=(i===code.length);
+        cells+='<span style="width:34px;height:42px;border:'+(active?'2px solid var(--vino,#410207)':'1px solid '+(ch?'var(--sabbia-dark,#cfc0ad)':'#e4dccd'))+';border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--ink,#2a1a10);">'+(ch||(active?'<span style=\"color:#bbab92\">_</span>':''))+'</span>'; }
+      function k(d){ return '<button class="kpk-k" data-d="'+d+'" style="padding:13px 0;font-size:18px;color:var(--ink,#2a1a10);border:1px solid var(--sabbia-dark,#cfc0ad);border-radius:9px;background:#fff;cursor:pointer;">'+d+'</button>'; }
+      var pad=''; ['1','2','3','4','5','6','7','8','9'].forEach(function(d){ pad+=k(d); });
+      pad+='<button id="kpk-bk" style="padding:13px 0;font-size:20px;color:#8a7a62;border:1px solid var(--sabbia-dark,#cfc0ad);border-radius:9px;background:#fff;cursor:pointer;">⌫</button>';
+      pad+=k('0');
+      pad+='<button id="kpk-ok" style="padding:13px 0;font-size:18px;color:#fff;background:var(--vino,#410207);border:1px solid var(--vino,#410207);border-radius:9px;cursor:pointer;">✓</button>';
+      var ktitle=opts.title||'Enter your employee ID';
+      b.innerHTML='<div style="font-family:var(--font-serif,Georgia,serif);color:var(--vino,#410207);font-size:22px;">'+escHtml(ktitle)+'</div>'
+        +'<div style="font-size:12.5px;color:#8a7a62;margin:2px 0 12px;">'+(opts.superOnly?'Manager / super-user code, to ':'Your ID or manager code, to ')+escHtml(actionLabel)+'.</div>'
+        +'<div style="display:flex;gap:7px;justify-content:center;margin-bottom:12px;">'+cells+'</div>'
+        +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">'+pad+'</div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:14px;border-top:1px solid var(--sabbia-dark,#cfc0ad);padding-top:12px;">'
+          +(opts.codeOnly?'<span></span>':'<button id="kpk-back" style="font-size:13px;color:var(--vino,#410207);background:none;border:none;cursor:pointer;padding:0;">← Back to names</button>')
+          +'<button id="kpk-cancel2" style="font-size:13px;color:#8a7a62;border:1px solid var(--sabbia-dark,#cfc0ad);background:#fff;border-radius:9px;padding:9px 13px;cursor:pointer;">Cancel</button></div>';
+      var ks=b.querySelectorAll('.kpk-k'); for(var j=0;j<ks.length;j++){ ks[j].onclick=function(){ if(code.length<6){ code+=this.getAttribute('data-d'); showKeypad(); } }; }
+      document.getElementById('kpk-bk').onclick=function(){ code=code.slice(0,-1); showKeypad(); };
+      document.getElementById('kpk-ok').onclick=submitCode;
+      var bk2=document.getElementById('kpk-back'); if(bk2) bk2.onclick=function(){ showNames(''); };
+      document.getElementById('kpk-cancel2').onclick=function(){ finish(null); };
+    }
+    function submitCode(){
+      var id=(code||'').trim(); if(!id) return;
+      if(superMap[id]){ finish({emp_id:id,name:superMap[id]}); return; }
+      if(opts.superOnly){ alert('That isn’t a manager / super-user code.'); code=''; showKeypad(); return; }
+      sb.from('staff').select('name,emp_id').eq('emp_id',id).eq('active',true).limit(1).then(function(r){
+        var s=r.data&&r.data[0]; if(s) finish({emp_id:id,name:s.name}); else { alert('ID "'+id+'" was not found. Try again or tap Cancel.'); code=''; showKeypad(); }
+      });
+    }
+    if(opts.codeOnly){ showKeypad(); return; }   // skip names, go straight to the keypad
+    sb.from('staff').select('id,name,emp_id,designation,station_key,sort_order').eq('active',true).order('sort_order').then(function(res){
+      people=(res&&res.error)?[]:((res&&res.data)||[]);
+      people.sort(function(a,b){ return ((a.sort_order==null?9999:a.sort_order)-(b.sort_order==null?9999:b.sort_order))||(a.name||'').localeCompare(b.name||''); });
+      showNames('');
+    });
+  });
+}
+async function resetIdentity(actionLabel, opts){
+  if(typeof kPickPerson==='function') return await kPickPerson(actionLabel, opts);
+  // Fallback: typed Employee ID (kept in case app.js's picker fails to load).
   var id = (prompt('Enter your Employee ID to '+actionLabel+'.\n\nThis is recorded.')||'').trim();
   if(!id) return null;
   if(RESET_SUPER[id]) return { emp_id:id, name:RESET_SUPER[id] };
@@ -878,10 +998,14 @@ function dateInReportRange(date,single,from,to){
 // Returns rows in the same shape as prepRows(); null on a failed load so the
 // caller can show "couldn't load" instead of a misleading "no records".
 async function loadPrepHistoryRows(single,from,to){
-  let q=sb.from('prep_status_log').select('service_date,station_key,subsection_key,dish_name,component_name,status,logged_at');
-  if(from||to){ if(from)q=q.gte('service_date',from); if(to)q=q.lte('service_date',to); }
-  else { q=q.eq('service_date',single); }
-  const {data:logs,error}=await q.order('logged_at',{ascending:true});
+  // Paged: the log grows with every status tap, so a date-range report passes
+  // the 1000-row response cap within days and would silently under-report.
+  const {data:logs,error}=await kFetchAllPaged(function(){
+    let q=sb.from('prep_status_log').select('service_date,station_key,subsection_key,dish_name,component_name,status,logged_at');
+    if(from||to){ if(from)q=q.gte('service_date',from); if(to)q=q.lte('service_date',to); }
+    else { q=q.eq('service_date',single); }
+    return q.order('logged_at',{ascending:true}).order('id',{ascending:true});
+  });
   if(error){ console.warn('report history load failed',error); return null; }
   if(!logs) return [];
   // Latest log entry per item per day wins (ascending order → last write).
@@ -1026,7 +1150,7 @@ async function loadReport() {
   if (!date) return;
   const el = document.getElementById('report-content');
   el.innerHTML = '<div class="report-no-data">Loading...</div>';
-  const { data: logs } = await sb.from('prep_status_log').select('*').eq('service_date', date).order('logged_at', {ascending: false});
+  const { data: logs } = await kFetchAllPaged(() => sb.from('prep_status_log').select('*').eq('service_date', date).order('logged_at', {ascending: false}).order('id', {ascending: false}));
   if (!logs || logs.length === 0) { el.innerHTML = `<div class="report-no-data">No data recorded for ${date}</div>`; return; }
 
   // Get final status per item (latest log entry wins)
@@ -1142,10 +1266,20 @@ async function resetActiveStation(){
   if(DEV_READ_ONLY)return;
   const rows=changed.map(ch=>({service_date:TODAY,station_key:st.key,subsection_key:ch.ss,dish_name:ch.dn,component_name:ch.item,status:'none',updated_at:new Date().toISOString()}));
   const logs=changed.map(ch=>({service_date:TODAY,station_key:st.key,subsection_key:ch.ss,dish_name:ch.dn,component_name:ch.item,status:'none',previous_status:ch.prev}));
-  try{
-    await sb.from('prep_status').upsert(rows,{onConflict:'service_date,station_key,subsection_key,dish_name,component_name'});
-    await sb.from('prep_status_log').insert(logs);
-  }catch(e){console.error('[resetActiveStation] save failed',e);}
+  // supabase-js resolves with {error} and never throws, so a try/catch can't see
+  // a failed write. Check .error explicitly and, on failure, put every item back
+  // to what it was so the board never shows a reset the database didn't accept.
+  const up = await sb.from('prep_status').upsert(rows,{onConflict:'service_date,station_key,subsection_key,dish_name,component_name'});
+  if (up.error) {
+    changed.forEach(ch=>{ state[mkId(st.key,ch.ss,ch.dn,ch.item)]=ch.prev; });
+    renderTabs();renderCounter();renderContent();applyFilter();
+    console.warn('[resetActiveStation] prep_status save failed', up.error);
+    kToast('Reset NOT saved — check connection and try again.', true);
+    return;
+  }
+  // Audit log is secondary — record it, but don't fail the reset if only it errors.
+  const lg = await sb.from('prep_status_log').insert(logs);
+  if (lg.error) console.warn('[resetActiveStation] prep_status_log insert failed', lg.error);
   logReset(who, 'prep_reset_station', st.label, changed.length);
 }
 
@@ -1629,13 +1763,11 @@ const STATUS_META = {
   off:     { label: 'OFF', bg: 'off' },
   wo:      { label: 'WO',  bg: 'wo' },
   sl:      { label: 'SL',  bg: 'sl' },
-  ul:      { label: 'UL',  bg: 'ul' },
   al:      { label: 'AL',  bg: 'al' },
   ph:      { label: 'PH',  bg: 'ph' },
   em:      { label: 'EM',  bg: 'em' },
   tr:      { label: 'TR',  bg: 'tr' },
   cat:     { label: 'CAT', bg: 'cat' },
-  fs:      { label: 'FS',  bg: 'fs' },
 };
 
 let schedWeekStart   = null;
@@ -1850,33 +1982,17 @@ function schedAttState(staff, dateStr) {
   var isPast = dateStr < schedTodayStr();
 
   if (a && a.first_in) {
-    // Build worked segments from the full punch list. Split shifts carry >2 punches
-    // (1st=in, 2nd=out, 3rd=in, 4th=out…); legacy rows with only first_in/last_out
-    // fall back to a single segment. A manual_out correction closes the final segment
-    // (matches FOH: a manager's fix of a wrong/missing clock-out actually takes effect).
-    var rawP = (a.punches && a.punches.length >= 2) ? a.punches.slice() : null;
-    if (!rawP) {
-      var effOut0 = a.manual_out || a.last_out || null;
-      rawP = effOut0 ? [a.first_in, effOut0] : [a.first_in];
+    // manual override wins over the machine punch — matches FOH, so a manager's
+    // correction of a wrong/missing clock-out actually takes effect (previously
+    // the machine last_out won and a manual fix on the kitchen schedule did nothing).
+    var effOut = a.manual_out || a.last_out || null;
+    if (effOut) {
+      return { kind: 'done', in: a.first_in, out: effOut,
+               manual: !!a.manual_out, hours: calcHours(a.first_in, effOut) };
     }
-    var segs = [];
-    for (var pi = 0; pi < rawP.length; pi += 2) {
-      segs.push({ in: rawP[pi], out: (pi + 1 < rawP.length) ? rawP[pi + 1] : null });
-    }
-    if (a.manual_out) segs[segs.length - 1].out = a.manual_out;
-    var lastSeg = segs[segs.length - 1];
-    var hrs = 0;
-    segs.forEach(function (s) { if (s.in && s.out) hrs += calcHours(s.in, s.out); });
-    hrs = Math.round(hrs * 10) / 10;
-    var isSplit = segs.length > 1;
-
-    if (lastSeg.out) {
-      return { kind: 'done', in: a.first_in, out: lastSeg.out, segs: segs,
-               split: isSplit, manual: !!a.manual_out, hours: hrs };
-    }
-    if (isToday) return { kind: 'in', in: a.first_in, segs: segs, split: isSplit, hours: hrs };
+    if (isToday) return { kind: 'in', in: a.first_in };
     var pe = rrow ? formatTime(rrow.shift_end) : '';
-    return { kind: 'open', in: a.first_in, segs: segs, split: isSplit, hours: hrs, plannedEnd: pe };
+    return { kind: 'open', in: a.first_in, plannedEnd: pe };
   }
   if (scheduled && (isPast || isToday) && dateStr >= ATT_TRACKING_START) {
     if (isPast) return { kind: 'absent' };
@@ -2097,12 +2213,9 @@ function renderSchedWeek() {
         var sid = staff.id;
         var mpid = 'smp' + sid.replace(/-/g,'');
         var wHours = 0, wDays = 0;
-        var upBtn = xi>0 ? '<span class="sch-ord-btn" onclick="schedMoveStaff(event,\'' + sid + '\',-1)" title="Move up">▲</span>' : '<span class="sch-ord-btn sch-ord-off">▲</span>';
-        var dnBtn = xi<allStaff.length-1 ? '<span class="sch-ord-btn" onclick="schedMoveStaff(event,\'' + sid + '\',1)" title="Move down">▼</span>' : '<span class="sch-ord-btn sch-ord-off">▼</span>';
 
         html += '<tr>';
         html += '<td class="sch-td-name" onclick="schedEditEmpId(event,\'' + sid + '\')" title="Tap to set employee ID" style="cursor:pointer">' +
-          '<span class="sch-ord">' + upBtn + dnBtn + '</span>' +
           '<span class="sch-del-btn" onclick="schedConfirmDelete(event,\'' + sid + '\')" title="Remove">×</span>' +
           staff.name +
           (staff.emp_id ? '<span class="sch-emp-id">' + staff.emp_id + '</span>' : '') + '</td>';
@@ -2125,14 +2238,8 @@ function renderSchedWeek() {
 
             if (att.kind === 'done') {
               wHours += att.hours; wDays++;
-              if (att.split) {
-                html += '<div class="sch-shift actual sch-split">' +
-                  att.segs.map(function(s){ return '<span class="sch-seg">' + s.in + '–' + (s.out || '·') + '</span>'; }).join('') +
-                  (att.manual ? '<span class="sch-actual-tag">closed</span>' : '') + '</div>';
-              } else {
-                html += '<div class="sch-shift actual"><span>' + att.in + '</span><span>' + att.out + '</span>' +
+              html += '<div class="sch-shift actual"><span>' + att.in + '</span><span>' + att.out + '</span>' +
                 (att.manual ? '<span class="sch-actual-tag">closed</span>' : '') + '</div>';
-              }
             } else if (att.kind === 'in') {
               wDays++;
               html += '<div class="sch-shift actual-live"><span>' + att.in + '</span>' +
@@ -2240,12 +2347,7 @@ function renderSchedDay() {
       var te = row ? formatTime(row.shift_end) : '';
       var att = schedAttState(staff, today);
       var attTxt = '', attCls = '';
-      if (att.kind === 'done') {
-        attTxt = att.split
-          ? 'Worked ' + att.segs.map(function(s){ return s.in + '–' + (s.out || '·'); }).join(', ')
-          : 'Worked ' + att.in + '–' + att.out;
-        attCls = 'sch-att-out';
-      }
+      if (att.kind === 'done') { attTxt = 'Worked ' + att.in + '–' + att.out; attCls = 'sch-att-out'; }
       else if (att.kind === 'in') { attTxt = 'In ' + att.in; attCls = 'sch-att-in'; }
       else if (att.kind === 'open') { attTxt = 'In ' + att.in + ' · no clock-out'; attCls = 'sch-att-miss'; }
       else if (att.kind === 'absent') { attTxt = 'No clock-in'; attCls = 'sch-att-miss'; }
@@ -2380,13 +2482,7 @@ async function schedSaveShift() {
   renderSchedWeek();
   if (!DEV_READ_ONLY) {
     var res = await sb.from('roster').upsert(payload, { onConflict: 'staff_id,work_date' });
-    if (res.error) {
-      // Save didn't reach the server — reload the true roster so the cell can't
-      // linger showing an unsaved shift, and tell the manager.
-      console.error('Save error:', res.error);
-      kToast('Shift NOT saved — check connection and try again.', true);
-      loadSchedData().then(renderSchedWeek);
-    }
+    if (res.error) console.error('Save error:', res.error);
   }
   schedEditTarget = null;
 }
@@ -2573,7 +2669,6 @@ async function schedMoveStation(staffId, mpid) {
     var res = await sb.from('staff').update({ station_key: targetStation }).eq('id', staffId);
     if (res.error) {
       console.error('Move error:', res.error);
-      kToast('Station move NOT saved — check connection and try again.', true);
       // revert on error
       loadSchedData().then(renderSchedWeek);
     }
@@ -2608,7 +2703,7 @@ async function schedSaveRole(staffId, input) {
   renderSchedWeek();
   if (!DEV_READ_ONLY) {
     var res = await sb.from('staff').update({ designation: newRole }).eq('id', staffId);
-    if (res.error) { console.error('Role update error:', res.error); kToast('Role NOT saved — check connection and try again.', true); loadSchedData().then(renderSchedWeek); }
+    if (res.error) { console.error('Role update error:', res.error); loadSchedData().then(renderSchedWeek); }
   }
 }
 
@@ -2619,32 +2714,6 @@ function schedCancelRole(staffId, input) {
 
 
 // ── Delete staff ──
-// ── Reorder staff within a station (↑/↓) ──
-// Renumber a station's members to 1..N by array order; persist only the rows that changed.
-async function schedPersistSectionOrder(orderedMates) {
-  if (DEV_READ_ONLY) return;
-  var updates = [];
-  orderedMates.forEach(function(s, i){ var want = i+1; if (s.sort_order !== want) { s.sort_order = want; updates.push(s); } });
-  for (var i = 0; i < updates.length; i++) {
-    var res = await sb.from('staff').update({ sort_order: updates[i].sort_order }).eq('id', updates[i].id);
-    if (res.error) { console.error('Reorder error:', res.error); loadSchedData().then(renderSchedWeek); return; }
-  }
-}
-function schedMoveStaff(event, staffId, dir) {
-  event.stopPropagation();
-  if (!schedGuard(function(){ schedMoveStaff(event, staffId, dir); })) return;
-  var staff = schedStaff.find(function(s){ return s.id === staffId; });
-  if (!staff) return;
-  var mates = schedStaff.filter(function(s){ return s.station_key === staff.station_key; });
-  var idx = mates.indexOf(staff), swapIdx = idx + dir;
-  if (swapIdx < 0 || swapIdx >= mates.length) return;   // already at the edge
-  var other = mates[swapIdx];
-  var gi = schedStaff.indexOf(staff), gj = schedStaff.indexOf(other);
-  schedStaff[gi] = other; schedStaff[gj] = staff;        // swap slots so render reflects it
-  renderSchedWeek();
-  schedPersistSectionOrder(schedStaff.filter(function(s){ return s.station_key === staff.station_key; }));
-}
-
 function schedConfirmDelete(event, staffId) {
   event.stopPropagation();
   if (!schedGuard(null)) return;
@@ -2909,6 +2978,8 @@ function schedPrint() {
 async function schedSendToHR() {
   var _wkEnd = addDays(schedWeekStart, 6);
   var _wkStr = schedWeekStart.toLocaleDateString('en-GB',{day:'numeric',month:'short'}) + ' to ' + _wkEnd.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+  var who = await resetIdentity('email the roster to HR');
+  if (!who) return;
   if (!confirm("Email this week's roster (" + _wkStr + ") to HR now?")) return;
   var btn = document.getElementById('svt-hr');
   if (btn) { btn.textContent = '⏳ Generating...'; btn.disabled = true; }
@@ -3048,8 +3119,8 @@ async function schedSendToHR() {
             cell.style = { font:Object.assign({bold:true,color:{argb:'FF'+VINO}},baseFont), fill:{type:'pattern',pattern:'solid',fgColor:{argb:'FF'+LIGHT}}, border:baseBorder, alignment:{horizontal:'center',vertical:'middle'} };
           } else {
             var status = cellStatuses[col-2];
-            var fills = { working:'FFFFFFFF', off:'FFF5F5F5', wo:'FFDBEAFE', sl:'FFFFF3C7', al:'FFD1FAE5', ph:'FFEDE9FE', em:'FFFEE2E2', tr:'FFCCFBF1', cat:'FFFFEDD5', fs:'FFE2E8F0', empty:'FFFFFFFF' };
-            var fgColors = { working:'FF333333', off:'FF999999', wo:'FF1e40af', sl:'FF92400e', al:'FF065f46', ph:'FF5b21b6', em:'FF991b1b', tr:'FF134e4a', cat:'FF9a3412', fs:'FF334155', empty:'FFCCCCCC' };
+            var fills = { working:'FFFFFFFF', off:'FFF5F5F5', wo:'FFDBEAFE', sl:'FFFFF3C7', al:'FFD1FAE5', ph:'FFEDE9FE', em:'FFFEE2E2', tr:'FFCCFBF1', cat:'FFFFEDD5', empty:'FFFFFFFF' };
+            var fgColors = { working:'FF333333', off:'FF999999', wo:'FF1e40af', sl:'FF92400e', al:'FF065f46', ph:'FF5b21b6', em:'FF991b1b', tr:'FF134e4a', cat:'FF9a3412', empty:'FFCCCCCC' };
             cell.style = {
               font: Object.assign({ bold: status !== 'working' && status !== 'empty', color:{argb: fgColors[status]||'FF333333'} }, baseFont),
               fill: { type:'pattern', pattern:'solid', fgColor:{argb: fills[status]||'FFFFFFFF'} },
@@ -3072,15 +3143,6 @@ async function schedSendToHR() {
 
     if (btn) btn.textContent = '📧 Sending...';
 
-    // Re-send detection: if this exact week was already emailed to HR, flag it as an
-    // update so the email says "discard the previous roster, this is the latest version".
-    var isUpdate = false;
-    try {
-      var prior = await sb.from('reset_log').select('id')
-        .eq('app','kitchen').eq('action','roster_send').eq('scope',weekStr).limit(1);
-      isUpdate = !!(prior && prior.data && prior.data.length);
-    } catch(e){ console.warn('[roster] re-send check failed', e); }
-
     // Route through Supabase Edge Function to avoid CORS
     var emailRes = await fetch('https://zrpglswalgjbtghudmhu.supabase.co/functions/v1/send-roster', {
       method: 'POST',
@@ -3091,16 +3153,14 @@ async function schedSendToHR() {
       body: JSON.stringify({
         weekStr: weekStr,
         fileName: fileName,
-        xlsxBase64: xlsxBase64,
-        update: isUpdate
+        xlsxBase64: xlsxBase64
       })
     });
 
     var emailData = await emailRes.json();
     if (!emailRes.ok) throw new Error(emailData.message || 'Email failed: ' + emailRes.status);
 
-    // Record this send so a later re-send of the same week is flagged as an update.
-    try { await sb.from('reset_log').insert({ app:'kitchen', action:'roster_send', scope:weekStr, item_count:null, emp_id:null, emp_name:'Kitchen roster' }); } catch(e){ console.warn('[roster] send not logged', e); }
+    if (typeof logReset === 'function') logReset(who, 'roster_send', _wkStr, null);
 
     if (btn) {
       btn.textContent = '✓ Sent to HR';

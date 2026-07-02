@@ -434,8 +434,6 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .sch-shift.actual-open-flag:hover{box-shadow:0 0 0 2px #c0392b}
 .sch-shift.actual-absent{background:#fdf3e3;color:#9a6a1e;border:1px solid #e6c98f}
 .sch-actual-tag{display:block;font-size:9px;letter-spacing:.4px;opacity:.75;margin-top:1px;text-transform:uppercase;font-weight:500}
-.sch-shift.sch-split{gap:0}
-.sch-seg{font-size:10px;line-height:1.25;white-space:nowrap;font-weight:600}
 .sch-actual-open{display:block;font-size:9px;letter-spacing:.4px;opacity:.7;font-style:italic}
 .sch-actual-close{display:block;font-size:9px;letter-spacing:.4px;font-weight:600;margin-top:1px}
 .sch-att{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:500;letter-spacing:.3px;font-variant-numeric:tabular-nums}
@@ -454,13 +452,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .sch-shift.off{background:#7f1d1d;color:#fff;border:1px solid #7f1d1d;font-weight:700;letter-spacing:1px}
 .sch-shift.wo{background:#1d4ed8;color:#fff;border:1px solid #1d4ed8;font-weight:700;letter-spacing:1px}
 .sch-shift.sl{background:#d97706;color:#fff;border:1px solid #d97706;font-weight:700;letter-spacing:1px}
-.sch-shift.ul{background:#475569;color:#fff;border:1px solid #475569;font-weight:700;letter-spacing:1px}
 .sch-shift.al{background:#047857;color:#fff;border:1px solid #047857;font-weight:700;letter-spacing:1px}
 .sch-shift.ph{background:#6d28d9;color:#fff;border:1px solid #6d28d9;font-weight:700;letter-spacing:1px}
 .sch-shift.em{background:#dc2626;color:#fff;border:1px solid #dc2626;font-weight:700;letter-spacing:1px}
 .sch-shift.tr{background:#0f766e;color:#fff;border:1px solid #0f766e;font-weight:700;letter-spacing:1px}
 .sch-shift.cat{background:#c2410c;color:#fff;border:1px solid #c2410c;font-weight:700;letter-spacing:1px}
-.sch-shift.fs{background:#334155;color:#fff;border:1px solid #334155;font-weight:700;letter-spacing:1px}
 .sch-shift.empty{background:transparent;border:1px dashed var(--sabbia-dark);color:#bbb;font-size:10px}
 
 /* Today highlight */
@@ -554,10 +550,6 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 /* Delete + Add staff */
 .sch-del-btn{display:inline-block;width:18px;height:18px;line-height:18px;text-align:center;border-radius:50%;background:transparent;color:var(--sabbia-dark);font-size:14px;font-weight:700;cursor:pointer;margin-right:6px;transition:all .15s;flex-shrink:0}
 .sch-del-btn:hover{background:#cc0000;color:#fff}
-.sch-ord{display:inline-flex;flex-direction:column;line-height:.8;margin-right:7px;flex-shrink:0;vertical-align:middle}
-.sch-ord-btn{font-size:12px;color:var(--sabbia-dark);cursor:pointer;user-select:none;padding:1px 4px;border-radius:3px}
-.sch-ord-btn:hover{color:#fff;background:var(--vino)}
-.sch-ord-off{visibility:hidden;cursor:default}
 .sch-add-row td{padding:4px 8px;border-bottom:2px solid var(--sabbia-dark)}
 .sch-add-staff-btn{background:none;border:1px dashed var(--sabbia-dark);color:var(--vino-light);border-radius:3px;font-size:11px;letter-spacing:.8px;padding:5px 12px;cursor:pointer;text-transform:uppercase;font-family:var(--font-sans);transition:all .15s}
 .sch-add-staff-btn:hover{border-color:var(--vino);color:var(--vino)}
@@ -727,6 +719,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .team-wrap{max-width:680px;margin:0 auto;padding:20px 18px 60px}
 .team-head{margin-bottom:18px}
 .team-title{font-family:var(--font-serif);font-size:24px;color:var(--vino);font-weight:600;position:relative}
+.team-corner{position:absolute;top:-8px;right:-8px;width:44px;height:44px;cursor:default}
 .team-langbar{margin:0 0 18px}
 .team-langlbl{font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:var(--vino-light);margin-bottom:8px}
 .team-langs{display:flex;flex-wrap:wrap;gap:8px}
@@ -1140,7 +1133,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   <button class="undo-btn" onclick="undoDelete()">Undo</button>
 </div>
 
-<script src="market-list.js?v=1782200000"></script>
+<script src="market-list.js?v=1782700000"></script>
 <!-- recipes.js / closing-report.js / team.js are large and open rarely; load them
      on demand to keep cold-boot light on the always-on screens. -->
 <script>
@@ -1158,9 +1151,9 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   window.LAZY_RECIPES = 'recipes.js?v=1781722142';
   // These two define their own open* function; the shim loads the file then the
   // real definition replaces this shim and the .then() call runs it.
-  function openClosingReport(){ lazyLoad('closing-report.js?v=1782470000').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
-  function openTeam(){ lazyLoad('team.js?v=1782900000').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
-  function openStockTake(){ lazyLoad('stock-take.js?v=1782980000').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
+  function openClosingReport(){ lazyLoad('closing-report.js?v=1782700000').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
+  function openTeam(){ lazyLoad('team.js?v=1783000000').then(function(){ openTeam(); }).catch(function(){ alert('Could not load Team survey. Check the connection and try again.'); }); }
+  function openStockTake(){ lazyLoad('stock-take.js?v=1783000000').then(function(){ openStockTake(); }).catch(function(){ alert('Could not load Stock Take. Check the connection and try again.'); }); }
   // Home-screen collapsible panels (Daily Operations / Management). MUST be defined
   // eagerly here, NOT in the lazy team.js — both panels need it at page load, and
   // team.js only loads after a panel is already open (chicken-and-egg).
@@ -1176,7 +1169,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
   }
 </script>
 <script src="common.js?v=1782123000"></script>
-<script src="app.js?v=1782970000"></script>
+<script src="app.js?v=1783000000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
@@ -1263,13 +1256,11 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
         <option value="off">Day Off</option>
         <option value="wo">Week Off (WO)</option>
         <option value="sl">Sick Leave (SL)</option>
-        <option value="ul">Unpaid Leave (UL)</option>
         <option value="al">Annual Leave (AL)</option>
         <option value="ph">Public Holiday (PH)</option>
         <option value="em">Emergency (EM)</option>
         <option value="tr">Training (TR)</option>
         <option value="cat">Catering (CAT)</option>
-        <option value="fs">Finishing (FS)</option>
       </select>
     </div>
     <div id="sch-time-fields" class="sch-modal-times">

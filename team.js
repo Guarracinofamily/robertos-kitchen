@@ -10,8 +10,12 @@ var teamLang = 'en';        // current display language
 
 // ── Survey round config (quarterly cycle) ──
 // Update these each round. teamDeadline = when Danilo must have the team finished.
+// `start` scopes the one-per-cycle gate: only submissions ON/AFTER this date
+// count as "done this round". Without it, everyone who did Round 1 would be
+// locked out of Round 2 forever ("you have already completed this survey").
 var TEAM_ROUND = {
   label: 'Round 1 · June 2026',
+  start: '2026-06-01',        // submissions before this belong to a previous round
   deadline: '2026-06-20',     // team must complete by this date
   nextTest: '2026-09-30'      // next quarterly test
 };
@@ -287,7 +291,11 @@ var teamDoneNames = {};
 var teamCompletionLoaded = false;
 async function teamLoadCompletion(){
   try {
-    var res = await sb.from('team_survey').select('staff_id,staff_name,submitted_at');
+    // Current round only (see TEAM_ROUND.start) — and capped: the table keeps
+    // every round forever, an unfiltered load would eventually hit the
+    // 1000-row response cap and mark people "not done" at random.
+    var res = await sb.from('team_survey').select('staff_id,staff_name,submitted_at')
+      .gte('submitted_at', TEAM_ROUND.start + 'T00:00:00Z').limit(2000);
     teamDoneNames = {};
     (res.data||[]).forEach(function(r){ teamDoneNames[r.staff_id||r.staff_name]=true; });
     teamCompletionLoaded = true;
@@ -331,7 +339,7 @@ function teamListHTML() {
   var order = ['management','pass','raw_bar','pasta','main','pastry_pizza','stewarding','other'];
   teamStaff.forEach(function(s) { var k=s.station_key||'other'; if(!byStation[k])byStation[k]=[]; byStation[k].push(s); });
   var html = '<div class="team-wrap"><div class="team-head">';
-  html += '<div class="team-title">'+Tui('title')+'</div>';
+  html += '<div class="team-title">'+Tui('title')+'<span class="team-corner" id="team-corner" onclick="teamCornerTap()"></span></div>';
   html += '<div class="team-sub">'+Tui('intro')+'</div></div>';
   // deadline banner — nudges Danilo/Antonio as the deadline approaches (shows when app is opened)
   if (teamCompletionLoaded) {
@@ -826,6 +834,19 @@ function teamAdminHTML(){
   html+='<div class="ta-footer">A short survey points, it does not prove. Strong flags are reliable; soft flags are conversations to have, never verdicts to act on alone. Re-run every 3 months to see who is trending up or down.</div>';
   html+='</div>';
   return html;
+}
+
+// ── Secret admin access: tap the title's top-right corner 5x within 3s ──
+var teamCornerTaps = [];
+function teamCornerTap() {
+  var now = Date.now();
+  teamCornerTaps = teamCornerTaps.filter(function(t){ return now - t < 3000; });
+  teamCornerTaps.push(now);
+  if (teamCornerTaps.length >= 5) {
+    teamCornerTaps = [];
+    teamAdminAnon = false;
+    teamOpenAdmin();
+  }
 }
 
 // ── Home screen collapsible panels (Daily Operations / Management) ──
