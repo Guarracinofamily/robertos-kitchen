@@ -91,7 +91,7 @@ async function kFetchAllPaged(buildQuery, pageSize){
 }
 
 // Check every 60s: 1) if service date changed (at 06:00), 2) if new app version available
-const APP_VERSION = 1783495862;
+const APP_VERSION = 1783628648;
 setInterval(function(){
   // Service-day rollover at 06:00 - not at midnight
   if(getServiceDate() !== TODAY){
