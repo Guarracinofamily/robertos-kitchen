@@ -2561,6 +2561,7 @@ var kplDirty      = false;
 var kplEditKey    = null;     // cell being edited
 var kplPaint      = null;     // {status} while paint mode armed
 var kplPainting   = false;
+var kplPaintStroke= null;     // {label, cells:[{key,prev}], seen} — collects one drag stroke so it undoes as a single step
 var kplMins       = {};       // sectionKey -> {wd,we} coverage minimums
 var kplEnt        = {};       // staffId -> {off,al,ph} entitlement targets over the span
 var kplWkClip     = null;     // copied week index for copy→paste
@@ -2791,6 +2792,9 @@ function schedPlanEnter(){
   kplSecLive   = STATIONS_SCH.map(function(s){ return { key:s.key, label:s.label }; });  // live baseline
   schedPlanReseedFromLive();
   schedPlanUpdateBadge();
+  // The undo stack is shared with the live schedule; start the planning session clean so a
+  // live-schedule edit can never be "undone" into the draft. Cleared again on close (krtClose).
+  schedUndoStack = []; if (typeof schedRenderUndoBtn === 'function') schedRenderUndoBtn();
 }
 // ── Sections manager (in the tool): rename, add, reorder (▲▼), delete — held in the plan ──
 function krtSectionRowHtml(key, label, isNew){
@@ -3155,8 +3159,13 @@ function krtCloseActions(){ var m=document.getElementById('krt-actmenu'); if(m) 
 function krtClose(){
   schedPlanMode = false;                 // back to live editing on the real schedule
   schedPlanRestoreLiveSections();        // drop any draft section add/rename from the live list
+  // End the planning session cleanly: stop any paste-in-progress and drop the draft-only undo
+  // history so it can't be replayed against the live DB once we're back on the real schedule.
+  if (typeof schedEndPaste === 'function') schedEndPaste();
+  schedUndoStack = [];
   var el=document.getElementById('kpl-full'); if(el) el.style.display='none';
   var sview=document.getElementById('scheduling-view'); if(sview) sview.style.display='flex';
+  if (typeof schedRenderUndoBtn === 'function') schedRenderUndoBtn();
   var fb=document.querySelector('.footer-bar'); if(fb) fb.style.display='flex';
   // Reload the untouched live data so the real schedule never shows the draft.
   if(typeof loadSchedData==='function' && schedWeekStart) loadSchedData().then(renderSchedView);
@@ -3809,13 +3818,25 @@ function kplEditMin(secKey){
 
 // ── Cell editing (draft) ──
 var kplDownAt = 0;
-function kplCellDown(ev, sid, ds){ if(!kplPaint) return; kplPainting=true; kplApplyPaint(sid, ds); ev.preventDefault(); }
+function kplCellDown(ev, sid, ds){ if(!kplPaint) return; kplPainting=true; kplPaintStroke={ label:kplPaintLabel(), cells:[], seen:{} }; kplApplyPaint(sid, ds); ev.preventDefault(); }
 function kplCellEnter(sid, ds){ if(kplPaint && kplPainting){ kplApplyPaint(sid, ds); } }
-function kplWirePaint(el){
-  document.addEventListener('pointerup', function(){ if(kplPainting){ kplPainting=false; kplSaveDraft(); kplRender(); } });
-}
+function kplPaintLabel(){ if(!kplPaint) return 'paint'; return kplPaint.status==='__clear' ? 'clear' : (kplPaint.status==='working' ? 'paint shift' : ('paint ' + kplFriendly(kplPaint.status))); }
+// End a paint drag: reset the flag, fold the WHOLE stroke into one undo step, then save + render.
+// (Attached once at load — the old kplWirePaint was never called, so paint had no pointerup at all.)
+document.addEventListener('pointerup', function(){
+  if(!kplPainting) return;
+  kplPainting = false;
+  if(kplPaintStroke && kplPaintStroke.cells.length){
+    var lbl = kplPaintStroke.label + (kplPaintStroke.cells.length>1 ? (' ('+kplPaintStroke.cells.length+' days)') : '');
+    kplUndoStack.push({ label: lbl, cells: kplPaintStroke.cells });
+    if (kplUndoStack.length > 30) kplUndoStack.shift();
+  }
+  kplPaintStroke = null;
+  kplSaveDraft(); kplRender(); if(typeof kplRenderUndoBtn==='function') kplRenderUndoBtn();
+});
 function kplApplyPaint(sid, ds){
   var k = kplKey(sid,ds);
+  if(kplPaintStroke && !kplPaintStroke.seen[k]){ kplPaintStroke.seen[k]=1; kplPaintStroke.cells.push({ key:k, prev: kplDraft[k] ? JSON.parse(JSON.stringify(kplDraft[k])) : null }); }
   if(kplPaint.status==='working') kplDraft[k]={status:'working', shift_start:KPL_DEF_START, shift_end:KPL_DEF_END, shift_start2:null, shift_end2:null, notes:(kplDraft[k]&&kplDraft[k].notes)||null};
   else if(kplPaint.status==='__clear') delete kplDraft[k];
   else kplDraft[k]={status:kplPaint.status, shift_start:null, shift_end:null, shift_start2:null, shift_end2:null, notes:(kplDraft[k]&&kplDraft[k].notes)||null};
@@ -4023,6 +4044,8 @@ function kplPasteWeek(w){
   if(kplWkClip===null || kplWkClip===w) return;
   if(!confirm('Paste week '+(kplWkClip+1)+' onto week '+(w+1)+'? This overwrites week '+(w+1)+' in the draft (all people shown or hidden).')) return;
   var affected = kplFilterPer==='all' ? kplStaff : kplStaff.filter(function(s){return s.id===kplFilterPer;});
+  var _wk=[]; affected.forEach(function(s){ for(var d=0; d<7; d++){ _wk.push(kplKey(s.id,kplDateISO(w,d))); } });
+  kplPushUndo(_wk, 'paste week '+(kplWkClip+1)+' → week '+(w+1));
   affected.forEach(function(s){ for(var d=0; d<7; d++){ var src=kplDraft[kplKey(s.id,kplDateISO(kplWkClip,d))]; var dk=kplKey(s.id,kplDateISO(w,d)); if(src) kplDraft[dk]=Object.assign({},src); else delete kplDraft[dk]; } });
   kplSaveDraft(); kplRender();
 }
@@ -4076,6 +4099,8 @@ function kplApplyBulk(){
   var st=document.getElementById('kpl-bulk-st').value||KPL_DEF_START, et=document.getElementById('kpl-bulk-et').value||KPL_DEF_END;
   var alt=document.getElementById('kpl-bulk-alt').checked;
   var patA=kplReadPattern('kpl-patA'), patB=alt?kplReadPattern('kpl-patB'):patA;
+  var _bk=[]; people.forEach(function(s){ weeks.forEach(function(w){ var pat=(alt && (w%2===1))?patB:patA; for(var d=0; d<7; d++){ var v=pat[d]; if(v===undefined||v==='') continue; _bk.push(kplKey(s.id,kplDateISO(w,d))); } }); });
+  if(_bk.length) kplPushUndo(_bk, 'bulk fill ('+_bk.length+' cells)');
   var n=0;
   people.forEach(function(s){ weeks.forEach(function(w){ var pat=(alt && (w%2===1))?patB:patA; for(var d=0; d<7; d++){ var v=pat[d]; if(v===undefined||v==='') continue; var k=kplKey(s.id,kplDateISO(w,d)); if(v==='working') kplDraft[k]={status:'working',shift_start:st,shift_end:et,shift_start2:null,shift_end2:null,notes:(kplDraft[k]&&kplDraft[k].notes)||null}; else kplDraft[k]={status:v,shift_start:null,shift_end:null,shift_start2:null,shift_end2:null,notes:(kplDraft[k]&&kplDraft[k].notes)||null}; n++; } }); });
   kplCloseBulk(); kplSaveDraft(); kplRender();
@@ -5228,12 +5253,18 @@ function schedFillDay() {
   schedWriteClipboard(t, 'fill whole day ' + schedDayLabel(schedClipboard.srcDate)).then(function(n){ if (n) schedShowPasteBar(n); });
 }
 function schedShowPasteBar(pastedCount) {
-  var host = document.getElementById('scheduling-view') || document.body;
+  // While the Roster tool is open the live schedule (#scheduling-view) is display:none,
+  // and a position:fixed child of a hidden parent won't render — so host the bar in the
+  // tool overlay whenever it's open, else on the live schedule as before.
+  var tool = document.getElementById('kpl-full');
+  var host = (tool && tool.style.display !== 'none') ? tool : (document.getElementById('scheduling-view') || document.body);
   var bar = document.getElementById('sch-paste-bar');
   if (!bar) {
     bar = document.createElement('div'); bar.id = 'sch-paste-bar';
     bar.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:9500;background:var(--vino,#410207);color:#fff;padding:9px 12px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.3);display:flex;align-items:center;gap:8px;font-family:var(--font-sans),sans-serif;font-size:13px;max-width:94vw;flex-wrap:wrap;justify-content:center';
     host.appendChild(bar);
+  } else if (bar.parentElement !== host) {
+    host.appendChild(bar);   // move it onto whichever surface is on top now
   }
   var bs = 'padding:6px 11px;border:1px solid rgba(255,255,255,.55);background:rgba(255,255,255,.12);color:#fff;border-radius:6px;cursor:pointer;font:inherit;font-weight:600';
   var msg = pastedCount ? ('&#9989; Pasted to ' + pastedCount + ' cell' + (pastedCount === 1 ? '' : 's') + ' &middot; keep tapping cells, or stop below')
@@ -5287,15 +5318,21 @@ function schedRenderUndoBtn(){
   var view = document.getElementById('scheduling-view');
   var tool = document.getElementById('kpl-full');
   var toolOpen = tool && tool.style.display !== 'none';
-  var visible = view && view.style.display !== 'none' && !toolOpen;
-  var show = visible && schedUndoStack.length > 0 && (typeof schedUnlocked === 'undefined' || schedUnlocked);
+  // Show on the live schedule OR inside the Roster planning tool. When the tool is open
+  // the live view is display:none, so the button must be hosted in the tool overlay to
+  // render (a fixed child of a hidden parent draws nothing).
+  var host = toolOpen ? tool : view;
+  var onSurface = toolOpen || (view && view.style.display !== 'none');
+  var show = onSurface && schedUndoStack.length > 0 && (typeof schedUnlocked === 'undefined' || schedUnlocked);
   var btn = document.getElementById('sch-undo-btn');
   if (!show){ if (btn) btn.style.display = 'none'; return; }
   if (!btn){
     btn = document.createElement('button'); btn.id = 'sch-undo-btn'; btn.type = 'button';
     btn.onclick = schedUndoLast;
     btn.style.cssText = 'position:fixed;left:14px;bottom:18px;z-index:9600;background:#fff;color:var(--vino,#410207);border:1.5px solid var(--vino,#410207);padding:9px 14px;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.22);font-family:var(--font-sans),sans-serif;font-size:13px;font-weight:700;cursor:pointer;max-width:62vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-    (view || document.body).appendChild(btn);
+    (host || document.body).appendChild(btn);
+  } else if (host && btn.parentElement !== host) {
+    host.appendChild(btn);   // keep it on whichever surface is showing
   }
   var last = schedUndoStack[schedUndoStack.length - 1];
   btn.title = 'Undo: ' + last.label + (schedUndoStack.length > 1 ? ('  (' + schedUndoStack.length + ' changes can be undone)') : '');
@@ -5306,7 +5343,9 @@ function schedRenderUndoBtn(){
 document.addEventListener('keydown', function(e){
   if ((e.key === 'z' || e.key === 'Z') && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey){
     var view = document.getElementById('scheduling-view');
-    if (!view || view.style.display === 'none') return;
+    var tool = document.getElementById('kpl-full');
+    var toolOpen = tool && tool.style.display !== 'none';
+    if (!toolOpen && (!view || view.style.display === 'none')) return;   // only on the schedule or in the Roster tool
     var el = document.activeElement;
     if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return;
     if (!schedUndoStack.length) return;
