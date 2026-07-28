@@ -72,37 +72,120 @@ async function mtToggleDone(id){
   await mtLoad(); mtRender();
 }
 
-async function mtAdd(){
-  const title = prompt('Task:');
-  if(!title || !title.trim()) return;
-  const when = prompt('When?  today / tomorrow / YYYY-MM-DD  (blank = no date)', 'today');
-  let due = null;
-  if(when && when.trim()){
-    const w = when.trim().toLowerCase();
-    if(w === 'today')          due = mtToday();
-    else if(w === 'tomorrow')  due = mtShift(mtToday(), 1);
-    else if(/^\d{4}-\d{2}-\d{2}$/.test(w)) due = w;
-  }
-  const time = prompt('Time?  e.g. 15:00  (blank = none)', '');
-  await sb.from('my_tasks').insert({
-    owner: MT_OWNER,
-    title: title.trim(),
-    due_date: due,
-    due_time: (time && /^\d{1,2}:\d{2}$/.test(time.trim())) ? time.trim() : null,
-    priority: 3,
-    done: false
+// -- editor sheet (replaces browser prompts) --------------------------------
+let mtEditing = null;   // task id, or null for a new task
+
+function mtOpenSheet(id){
+  mtEditing = id || null;
+  const r = id ? mtRows.find(x => x.id === id) : null;
+  const t = mtToday();
+  const cur = r ? (r.due_date || '') : t;
+  const quick = [['Today', t], ['Tomorrow', mtShift(t,1)], ['No date', '']];
+
+  document.getElementById('mt-sheet').innerHTML =
+  '<div class="mt-sheet-box" onclick="event.stopPropagation()">' +
+    '<div class="mt-sheet-h">' + (r ? 'Edit task' : 'New task') + '</div>' +
+
+    '<label class="mt-lab">Task</label>' +
+    '<input class="mt-in" id="mt-f-title" value="' + mtEsc(r ? r.title : '') + '" placeholder="What needs doing" autocomplete="off">' +
+
+    '<label class="mt-lab">Note</label>' +
+    '<textarea class="mt-in mt-ta" id="mt-f-note" rows="2" placeholder="Context, prep, who is involved">' + mtEsc(r && r.note ? r.note : '') + '</textarea>' +
+
+    '<label class="mt-lab">When</label>' +
+    '<div class="mt-quick" id="mt-q-date">' +
+      quick.map(function(q){
+        return '<button class="mt-q' + (cur === q[1] ? ' on' : '') + '" data-d="' + q[1] + '" onclick="mtSetDate(this)">' + q[0] + '</button>';
+      }).join('') +
+    '</div>' +
+    '<div class="mt-when-row">' +
+      '<input class="mt-in" type="date" id="mt-f-date" value="' + cur + '" onchange="mtSyncQuick()">' +
+      '<input class="mt-in" type="time" id="mt-f-time" value="' + (r && r.due_time ? r.due_time.slice(0,5) : '') + '">' +
+    '</div>' +
+
+    '<label class="mt-lab">Priority</label>' +
+    '<div class="mt-quick">' +
+      [[1,'Urgent'],[2,'High'],[3,'Normal']].map(function(x){
+        return '<button class="mt-q pr' + x[0] + ((r ? r.priority : 3) === x[0] ? ' on' : '') + '" data-p="' + x[0] + '" onclick="mtSetPri(' + x[0] + ')">' + x[1] + '</button>';
+      }).join('') +
+    '</div>' +
+    '<input type="hidden" id="mt-f-pri" value="' + (r ? r.priority : 3) + '">' +
+
+    '<div class="mt-sheet-foot">' +
+      (r ? '<button class="mt-btn del" onclick="mtDelete(\'' + r.id + '\')">Delete</button>' : '<span></span>') +
+      '<div class="mt-sheet-actions">' +
+        '<button class="mt-btn ghost" onclick="mtCloseSheet()">Cancel</button>' +
+        '<button class="mt-btn" onclick="mtSaveSheet()">Save</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+
+  document.getElementById('mt-sheet').classList.add('open');
+  setTimeout(function(){ const el = document.getElementById('mt-f-title'); if(el) el.focus(); }, 30);
+}
+
+function mtCloseSheet(){
+  const s = document.getElementById('mt-sheet');
+  if(!s) return;
+  s.classList.remove('open'); s.innerHTML = ''; mtEditing = null;
+}
+
+function mtSetDate(btn){
+  document.getElementById('mt-f-date').value = btn.dataset.d;
+  mtSyncQuick();
+}
+
+function mtSyncQuick(){
+  const v = document.getElementById('mt-f-date').value || '';
+  const box = document.getElementById('mt-q-date');
+  if(!box) return;
+  Array.prototype.forEach.call(box.querySelectorAll('.mt-q'), function(b){
+    b.classList.toggle('on', b.dataset.d === v);
   });
+}
+
+function mtSetPri(v){
+  document.getElementById('mt-f-pri').value = v;
+  Array.prototype.forEach.call(document.querySelectorAll('#mt-sheet .mt-q[data-p]'), function(b){
+    b.classList.toggle('on', Number(b.dataset.p) === v);
+  });
+}
+
+async function mtSaveSheet(){
+  const titleEl = document.getElementById('mt-f-title');
+  const title = titleEl.value.trim();
+  if(!title){ titleEl.classList.add('bad'); titleEl.focus(); return; }
+  const payload = {
+    title: title,
+    note:     document.getElementById('mt-f-note').value.trim() || null,
+    due_date: document.getElementById('mt-f-date').value || null,
+    due_time: document.getElementById('mt-f-time').value || null,
+    priority: Number(document.getElementById('mt-f-pri').value) || 3
+  };
+  if(mtEditing){
+    await sb.from('my_tasks').update(payload).eq('id', mtEditing);
+  } else {
+    payload.owner = MT_OWNER; payload.done = false;
+    await sb.from('my_tasks').insert(payload);
+  }
+  mtCloseSheet();
   await mtLoad(); mtRender();
 }
 
-async function mtEditNote(id){
-  const row = mtRows.find(r => r.id === id);
-  if(!row) return;
-  const note = prompt('Note:', row.note || '');
-  if(note === null) return;
-  await sb.from('my_tasks').update({ note: note.trim() || null }).eq('id', id);
+async function mtDelete(id){
+  const btn = document.querySelector('.mt-sheet-foot .mt-btn.del');
+  if(btn && !btn.dataset.armed){
+    btn.dataset.armed = '1';
+    btn.textContent = 'Delete — sure?';
+    setTimeout(function(){ if(btn){ btn.dataset.armed = ''; btn.textContent = 'Delete'; } }, 4000);
+    return;
+  }
+  await sb.from('my_tasks').delete().eq('id', id);
+  mtCloseSheet();
   await mtLoad(); mtRender();
 }
+
+function mtAdd(){ mtOpenSheet(null); }
 
 // ── filtering ──────────────────────────────────────────────────────────────
 function mtVisible(){
@@ -144,7 +227,7 @@ function mtRow(r){
   return `
   <div class="mt-row ${p}${r.done ? ' done' : ''}">
     <button class="mt-tick" onclick="mtToggleDone('${r.id}')">${r.done ? '&#10003;' : ''}</button>
-    <div class="mt-mid" onclick="mtEditNote('${r.id}')">
+    <div class="mt-mid" onclick="mtOpenSheet('${r.id}')">
       <div class="mt-name">${mtEsc(r.title)}</div>
       ${r.note ? `<div class="mt-note">${mtEsc(r.note)}</div>` : ''}
       ${tags.length ? `<div class="mt-tags">${tags.join('')}</div>` : ''}
@@ -181,7 +264,8 @@ function mtRender(){
     </div>
     ${body}
     <button class="mt-add" onclick="mtAdd()">+ Add task</button>
-    <div class="mt-foot">Updated automatically each morning · 07:00</div>`;
+    <div class="mt-foot">Updated automatically each morning · 07:00</div>
+    <div class="mt-sheet" id="mt-sheet" onclick="mtCloseSheet()"></div>`;
 }
 
 function mtSetTab(k){ mtTab = k; mtRender(); }
@@ -258,4 +342,31 @@ const MT_STYLE = `<style id="mt-style">
 .mt-empty{background:var(--sabbia-light);border:1px dashed var(--sabbia-dark);border-radius:6px;padding:18px;text-align:center;color:var(--vino-light);font-size:13px}
 .mt-add{margin-top:20px;width:100%;background:var(--vino);color:var(--cream);border:none;border-radius:6px;padding:14px;font-family:var(--font-sans);font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;cursor:pointer}
 .mt-foot{text-align:center;font-size:11px;color:var(--vino-light);margin-top:16px;letter-spacing:.5px}
+/* -- editor sheet -- */
+.mt-sheet{position:fixed;inset:0;background:rgba(42,26,16,.42);backdrop-filter:blur(2px);display:none;align-items:flex-end;justify-content:center;z-index:400}
+.mt-sheet.open{display:flex}
+@media(min-width:640px){.mt-sheet.open{align-items:center}}
+.mt-sheet-box{background:var(--sabbia-light);border:1px solid var(--sabbia-dark);border-top:4px solid var(--vino);border-radius:14px 14px 0 0;width:100%;max-width:480px;padding:20px 20px 18px;max-height:92vh;overflow:auto;box-shadow:0 -8px 34px rgba(65,2,7,.22)}
+@media(min-width:640px){.mt-sheet-box{border-radius:12px;box-shadow:0 10px 40px rgba(65,2,7,.28)}}
+.mt-sheet-h{font-family:var(--font-serif);font-size:25px;color:var(--vino);line-height:1;margin-bottom:16px}
+.mt-lab{display:block;font-size:9.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--vino-light);font-weight:600;margin:14px 0 5px}
+.mt-lab:first-of-type{margin-top:0}
+.mt-in{width:100%;background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:6px;padding:11px 12px;font-family:var(--font-sans);font-size:15px;color:var(--ink);outline:none}
+.mt-in:focus{border-color:var(--vino)}
+.mt-in.bad{border-color:var(--pomodoro)}
+.mt-ta{resize:vertical;line-height:1.45;font-size:14px}
+.mt-when-row{display:grid;grid-template-columns:1.4fr 1fr;gap:8px;margin-top:8px}
+.mt-quick{display:flex;gap:7px;flex-wrap:wrap}
+.mt-q{background:var(--cream);border:1px solid var(--sabbia-dark);border-radius:20px;padding:7px 14px;font-family:var(--font-sans);font-size:12px;color:var(--vino);cursor:pointer;transition:all .12s}
+.mt-q:hover{border-color:var(--vino)}
+.mt-q.on{background:var(--vino);border-color:var(--vino);color:var(--cream)}
+.mt-q.pr1.on{background:var(--pomodoro);border-color:var(--pomodoro);color:#fff}
+.mt-q.pr2.on{background:var(--oro);border-color:var(--oro);color:#fff}
+.mt-q.pr3.on{background:var(--oliva);border-color:var(--oliva);color:#fff}
+.mt-sheet-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:22px;padding-top:16px;border-top:1px solid var(--sabbia-dark)}
+.mt-sheet-actions{display:flex;gap:8px}
+.mt-btn{background:var(--vino);color:var(--cream);border:1px solid var(--vino);border-radius:6px;padding:10px 20px;font-family:var(--font-sans);font-size:12px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;cursor:pointer}
+.mt-btn.ghost{background:transparent;color:var(--vino-light);border-color:var(--sabbia-dark)}
+.mt-btn.del{background:transparent;color:#a3251f;border-color:#d9b3ae;padding:10px 14px}
+
 </style>`;
