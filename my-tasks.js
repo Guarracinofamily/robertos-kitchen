@@ -11,7 +11,7 @@
 // ══════════════════════════════════════════════════════════════════════════
 
 const MT_KEY   = 'my_tasks';
-const MT_PIN   = '7301';           // personal view passcode
+const MT_PIN   = '3105';           // personal view passcode
 const MT_OWNER = 'francesco';      // owner key on every row
 const MT_UNLOCK_MS = 12 * 60 * 60 * 1000;   // stay unlocked half a day
 
