@@ -271,34 +271,60 @@ function mtRender(){
 function mtSetTab(k){ mtTab = k; mtRender(); }
 
 // ── entry point ────────────────────────────────────────────────────────────
-function mtCheckUnlock(){
+function mtIsUnlocked(){
   if(mtUnlocked) return true;
   try{
     const until = parseInt(localStorage.getItem('mt_unlock_until') || '0', 10);
     if(until && Date.now() < until){ mtUnlocked = true; return true; }
   }catch(e){}
-  const code = prompt('Passcode:');
-  if(code === MT_PIN){
-    mtUnlocked = true;
-    try{ localStorage.setItem('mt_unlock_until', String(Date.now() + MT_UNLOCK_MS)); }catch(e){}
-    return true;
-  }
-  if(code !== null) alert('Incorrect passcode.');
   return false;
 }
 
+function mtRenderLock(msg){
+  const host = document.getElementById('mytasks-view');
+  host.innerHTML = MT_STYLE +
+  '<div class="mt-lock">' +
+    '<div class="mt-lock-box">' +
+      '<div class="mt-lock-t">My Tasks</div>' +
+      '<div class="mt-lock-s">Private view</div>' +
+      '<input class="mt-in mt-lock-in" id="mt-pin" type="password" inputmode="numeric" ' +
+        'autocomplete="off" placeholder="Passcode" onkeydown="if(event.key===\'Enter\')mtTryUnlock()">' +
+      (msg ? '<div class="mt-lock-err">' + msg + '</div>' : '') +
+      '<button class="mt-btn mt-lock-btn" onclick="mtTryUnlock()">Enter</button>' +
+    '</div>' +
+  '</div>';
+  setTimeout(function(){ const el = document.getElementById('mt-pin'); if(el) el.focus(); }, 30);
+}
+
+async function mtTryUnlock(){
+  const el = document.getElementById('mt-pin');
+  if(!el) return;
+  if(el.value === MT_PIN){
+    mtUnlocked = true;
+    try{ localStorage.setItem('mt_unlock_until', String(Date.now() + MT_UNLOCK_MS)); }catch(e){}
+    await mtBoot();
+  } else {
+    mtRenderLock('Incorrect passcode.');
+  }
+}
+
+async function mtBoot(){
+  const host = document.getElementById('mytasks-view');
+  host.innerHTML = MT_STYLE + '<div class="ops-title">My Tasks</div><div class="ops-subtitle">Loading…</div>';
+  await mtLoad();
+  mtSubscribe();
+  mtRender();
+}
+
 async function openMyTasks(){
-  if(!mtCheckUnlock()) return;
   activeStation = MT_KEY;
   hideAllPages();
   const host = document.getElementById('mytasks-view');
   host.style.display = 'block';
   document.querySelector('.footer-bar').style.display = 'flex';
   document.getElementById('foot-label').textContent = 'My Tasks';
-  host.innerHTML = `${MT_STYLE}<div class="ops-title">My Tasks</div><div class="ops-subtitle">Loading…</div>`;
-  await mtLoad();
-  mtSubscribe();
-  mtRender();
+  if(!mtIsUnlocked()){ mtRenderLock(''); return; }
+  await mtBoot();
 }
 
 // ══ styles ═══════════════════════════════════════════════════════════════════
@@ -368,5 +394,14 @@ const MT_STYLE = `<style id="mt-style">
 .mt-btn{background:var(--vino);color:var(--cream);border:1px solid var(--vino);border-radius:6px;padding:10px 20px;font-family:var(--font-sans);font-size:12px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;cursor:pointer}
 .mt-btn.ghost{background:transparent;color:var(--vino-light);border-color:var(--sabbia-dark)}
 .mt-btn.del{background:transparent;color:#a3251f;border-color:#d9b3ae;padding:10px 14px}
+/* -- lock screen -- */
+.mt-lock{display:flex;align-items:center;justify-content:center;padding:48px 0 60px}
+.mt-lock-box{background:var(--cream);border:1px solid var(--sabbia-dark);border-top:4px solid var(--vino);border-radius:12px;padding:30px 26px 26px;width:100%;max-width:330px;text-align:center}
+.mt-lock-t{font-family:var(--font-serif);font-size:30px;color:var(--vino);line-height:1}
+.mt-lock-s{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--vino-light);margin-top:5px}
+.mt-lock-in{margin-top:22px;text-align:center;letter-spacing:7px;font-size:20px;padding:13px 12px}
+.mt-lock-err{color:var(--pomodoro);font-size:11.5px;margin-top:9px;letter-spacing:.4px}
+.mt-lock-btn{margin-top:16px;width:100%;padding:13px}
+
 
 </style>`;
