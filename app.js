@@ -1899,7 +1899,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
