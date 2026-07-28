@@ -1,22 +1,55 @@
 // ══════════════════════════════════════════════════════════════════════════
 // MENU DEVELOPMENT PLAN
 //
-// Two things kept deliberately separate:
+// THE WAY IN is "What's on": everything the kitchen is developing, when it goes
+// live, and ONE next action each. It opens on the commitments already in the
+// database — the Q4 slots from the marketing email, the standing menus — because
+// those ARE what Danilo is required to develop, and a blank box would be the
+// failure this rebuild exists to fix.
+//
+// Work reaches him two ways, and both end up as the same kind of row:
+//   REQUESTED      Francesco asks (often pasting a marketing email). It lands on
+//                  Danilo's list; DANILO then gives it the dates and the plan,
+//                  and Francesco accepts that plan. This per-item loop is what
+//                  replaced the old whole-plan Submit / Approve ceremony.
+//   SELF-INITIATED He writes it in the box: "what do you want to develop?"
+//
+// Two rules the code holds to:
+//   1. The assistant reads his words; THE APP DOES THE DATES. Turning a sentence
+//      into a list of things is the model's job. Every date, duration and stage
+//      boundary is integer arithmetic in this file (mpAddDays / mpBuildTimeline).
+//      No date this module shows was ever produced by a model.
+//   2. Nothing is saved that he hasn't confirmed. The read-back screen shows what
+//      was understood as editable chips; only after he confirms does anything
+//      write.
+//
+// Stages: Development → Testing → Approval → Costing, with Photoshoot floating.
+// No Simphony stage. No fixed durations — six months or one week, same four
+// stages stretched or squeezed. The layout is a proposal; every edge drags.
+//
+// One kitchen team, identical access (Danilo, Antonio, Andrea). There is no
+// per-menu lead chef.
+//
+// Underneath, two things kept deliberately separate:
 //   1. DISH BANK      — chefs log every dish they develop. The creative engine.
 //                       Filling it is the team's whole job for the sprint.
 //   2. MENU CALENDAR  — leadership schedules each menu across the year and
 //                       pulls dishes from the bank.
-// Plus a Sprint tracker, Menu Briefs, Tasting sessions, and a comment thread
-// so the plan can be SUBMITTED by the chefs and APPROVED by Francesco in-app.
+// Plus Menu Briefs, Tasting sessions, and a comment thread per item, so the two
+// of them can settle one activation without booking a meeting.
 //
 // Identity: this module has its own tap-your-name picker, limited to the people
 // in menu_plan_members (Danilo, Antonio, Andrea Falcone = chefs; Francesco =
-// approver). No code, no password — his call: the team must feel zero friction.
+// approver; Aung Htwe = cost controller). No code, no password — his call: the
+// team must feel zero friction.
 // Every write is stamped with the name, so the audit trail survives.
 //
 // Reads every list from the DB (members, menus, months present on rows) — no
 // hardcoded mirror of table data anywhere, so adding a person or a menu is an
-// INSERT, not a redeploy. Schema: menu-plan-schema.sql
+// INSERT, not a redeploy.
+// Schema: menu-plan-schema.sql, then menu-plan-campaigns.sql, then
+// menu-plan-front-door.sql. The app checks for the last one's columns rather
+// than assuming them, so it keeps working before it has been run.
 //
 // Reuses app.js globals: sb, SUPABASE_URL, SUPABASE_KEY, activeStation,
 // hideAllPages, escHtml.
@@ -48,6 +81,27 @@ const MP_CELL_STATES = ['Develop','Testing','Photoshooting','Launch','Live','Cha
 // (Launch/Live both 'L', Testing/... ). Kept in workflow order.
 const MP_CELL_CODE = { Develop:'De', Testing:'Te', Photoshooting:'Ph', Launch:'La', Live:'Li', Changing:'Ch' };
 const MP_DECISIONS = ['Approve','Rework','Reject'];
+
+// ── the stages of a job ─────────────────────────────────────────────────────
+// Development → Testing → Approval → Costing, in that order, with Photoshoot
+// floating: it can sit anywhere in between, and it is allowed to overlap.
+// There is no Simphony stage — it was considered and dropped. There are no
+// fixed durations either: a job might be six months or one week, and it is the
+// same four stages stretched or squeezed. Nothing here counts weeks back from a
+// launch.
+const MP_STAGES = ['Development','Testing','Approval','Costing'];
+const MP_PHOTO_STAGE = 'Photoshoot';
+const MP_ALL_STAGES = MP_STAGES.concat([MP_PHOTO_STAGE]);
+// How the app first splits a window. This is a PROPOSAL, never a rule — every
+// edge drags and every stage can be dropped.
+const MP_STAGE_WEIGHT = { Development:0.50, Testing:0.20, Approval:0.15, Costing:0.15 };
+const MP_STAGE_NOTE = {
+  Development:  'building the dishes',
+  Testing:      'tasting and deciding',
+  Approval:     'Francesco says yes',
+  Costing:      'the cost sheet and the price',
+  Photoshoot:   'photographing the dishes'
+};
 
 // The planning window: Jul 2026 → Jun 2027 (12 months) — the same Jul→Jun year
 // the Events report uses, not the calendar year. It starts in July, not
@@ -101,7 +155,19 @@ function mpFileSize(bytes){
   if (!bytes) return '';
   return bytes < 1024*1024 ? Math.max(1, Math.round(bytes/1024)) + ' KB' : (bytes/1048576).toFixed(1) + ' MB';
 }
-let mpTab      = 'plan'; // plan | dishes | calendar | briefs | tastings
+// The Plan is the first thing he sees: everything the kitchen is developing,
+// with the box to add to it at the top. Dishes is where the day-to-day happens,
+// but the plan is what he opens the module to look at.
+let mpTab      = 'home'; // home (The Plan) | plan (Progress) | dishes | calendar | briefs | tastings
+
+// ── the new front door ──────────────────────────────────────────────────────
+// Two capabilities the app checks for rather than assumes, so it keeps working
+// on a DB where menu-plan-front-door.sql has not been run yet.
+let mpHasStages   = true;  // menu_plan_calendar carries stage / starts_on / ends_on
+let mpHasRequests = true;  // menu_plan_menus carries origin / request_note / plan_state
+let mpHasOnPlan   = true;  // menu_plan_menus carries on_plan
+let mpIntake = null;       // the one-box flow while it is open
+let mpTl     = null;       // the timeline being dragged
 let mpBoardView = 'list';// list | board  (list is the phone default)
 let mpCalView  = 'list'; // list | grid  (list is the calm phone default)
 let mpFilter   = { section:'', menu:'', status:'', q:'' };
@@ -207,11 +273,10 @@ function mpBriefTemplate(name){
   for (var i = 0; i < MP_BRIEF_TEMPLATES.length; i++) if (MP_BRIEF_TEMPLATES[i].test.test(name || '')) return MP_BRIEF_TEMPLATES[i];
   return null;
 }
-// Remember the last lead chef / cadence / price picked, so writing a run of
-// similar menus (the four Festive ones) doesn't mean re-picking every time.
+// Remember the last cadence / price picked, so writing a run of similar menus
+// (the four Festive ones) doesn't mean re-picking every time.
 function mpRememberMenuDefaults(row){
   try {
-    if (row.lead_chef) localStorage.setItem('menu-plan-last-lead', row.lead_chef);
     if (row.change_cadence) localStorage.setItem('menu-plan-last-cadence', row.change_cadence);
     if (row.price) localStorage.setItem('menu-plan-last-price', row.price);
   } catch(e){}
@@ -219,7 +284,6 @@ function mpRememberMenuDefaults(row){
 function mpLastMenuDefaults(){
   try {
     return {
-      lead_chef: localStorage.getItem('menu-plan-last-lead') || null,
       change_cadence: localStorage.getItem('menu-plan-last-cadence') || null,
       price: localStorage.getItem('menu-plan-last-price') || null
     };
@@ -282,7 +346,13 @@ async function mpLoadAll(){
     sb.from('menu_plan_menu_files').select('*').order('created_at'),
     sb.from('menu_plan_dish_files').select('*').order('created_at'),
     sb.from('menu_plan_campaigns').select('*').order('sort_order'),
-    sb.from('menu_plan_tasting_scores').select('*').order('created_at')
+    sb.from('menu_plan_tasting_scores').select('*').order('created_at'),
+    // Two probes, not two guesses. Naming the columns makes PostgREST fail
+    // loudly if menu-plan-front-door.sql has not been run, and a failure here
+    // is the signal — not an excuse to break the rest of the page.
+    sb.from('menu_plan_calendar').select('id,stage,starts_on,ends_on').limit(1),
+    sb.from('menu_plan_menus').select('id,origin,plan_state,request_note,needed_by,requested_by').limit(1),
+    sb.from('menu_plan_menus').select('id,on_plan').limit(1)
   ]);
   mpMembers  = r[0].data || [];
   mpMenus    = r[1].data || [];
@@ -314,6 +384,9 @@ async function mpLoadAll(){
   (mpScoresTable ? r[11].data : []).forEach(function(sc){
     (mpTastingScores[sc.item_id] = mpTastingScores[sc.item_id] || []).push(sc);
   });
+  mpHasStages   = !!(r[12] && !r[12].error);
+  mpHasRequests = !!(r[13] && !r[13].error);
+  mpHasOnPlan   = !!(r[14] && !r[14].error);
   mpLoaded = true;
   // A failed members load would empty the picker and lock everyone out — say so.
   if (r[0].error) mpToast('Could not load the team list. Check the connection.', true);
@@ -572,14 +645,19 @@ async function openMenuPlan(){
 function mpRender(){
   var host = document.getElementById('menuplan-view');
   if (!host || activeStation !== MENUPLAN_KEY) return;
+  // Two tabs used to both claim to be the plan. The list of what the kitchen is
+  // developing IS the plan, so it takes the name and comes first; the old
+  // overview becomes Progress, which is what it was always really showing.
   var tabs = [
-    { k:'plan',     label:'The Plan' },
+    { k:'home',     label:'The Plan' },
+    { k:'plan',     label:'Progress' },
     { k:'dishes',   label:'Dishes',     badge: mpDishes.length },
     { k:'calendar', label:'Calendar' },
     { k:'briefs',   label:'Menus' },
     { k:'tastings', label:'Tastings',   badge: mpTastings.length }
   ];
-  var body = mpTab === 'plan'     ? mpRenderPlan()
+  var body = mpTab === 'home'     ? mpRenderHome()
+           : mpTab === 'plan'     ? mpRenderPlan()
            : mpTab === 'dishes'   ? mpRenderDishes()
            : mpTab === 'calendar' ? mpRenderCalendar()
            : mpTab === 'briefs'   ? mpRenderBriefs()
@@ -590,7 +668,7 @@ function mpRender(){
       '<div class="mp-top">' +
         '<div>' +
           '<div class="mp-h1">Menu Development Plan</div>' +
-          '<div class="mp-h1sub">' + mpEsc(mpStatusLine()) + '</div>' +
+          '<div class="mp-h1sub">' + mpEsc(mpTab === 'home' ? 'Everything on, and what’s next.' : mpStatusLine()) + '</div>' +
         '</div>' +
         '<button class="mp-me" onclick="mpSwitchUser()" title="Not you? Tap to switch">' +
           mpEsc(mpMe.name.split(' ')[0]) + ' <span>switch</span></button>' +
@@ -607,212 +685,1278 @@ function mpRender(){
 }
 function mpGo(tab){ mpTab = tab; mpRender(); window.scrollTo(0,0); }
 
+// The subtitle on every tab except What's on. The first three lines only ever
+// show on a DB row left behind by the old whole-plan ceremony — nothing can set
+// those states any more. The last line is the one that actually renders, so it
+// says where the work is agreed instead of promising a submission that can
+// never happen.
 function mpStatusLine(){
   var s = (mpSprint && mpSprint.status) || 'draft';
   if (s === 'approved')          return 'Approved by ' + (mpSprint.approved_by || 'Francesco') + ' · ' + mpDateLabel(mpSprint.approved_at);
   if (s === 'submitted')         return 'Submitted ' + mpDateLabel(mpSprint.submitted_at) + ' · waiting for Francesco';
   if (s === 'changes_requested') return 'Francesco asked for changes — see the comments';
-  return 'Draft · not submitted yet';
+  return 'Each thing is agreed on The Plan';
 }
 
-// ══ 1. THE PLAN (home) ═════════════════════════════════════════════════════
+// ══ 0. WHAT'S ON — the way in ══════════════════════════════════════════════
+// Work reaches the kitchen two ways. Most of it is HANDED to Danilo: Francesco
+// asks for a menu or an activation and Danilo then comes up with the dates and
+// the plan. The rest he starts himself, through the box. Both end up as an
+// ordinary menu_plan_menus row — only the origin differs — so everything made
+// here is a first-class record the old five tabs can still see.
+//
+// This screen is never empty. It opens on the 22 commitments the business has
+// already made, because those ARE the things he is required to develop.
+
+// ── date arithmetic. Every date in this module comes from here. ─────────────
+// The assistant reads his words; the app does the dates. Nothing below ever
+// asks a model for a day, a duration or a boundary.
+function mpAddDays(iso, n){
+  var d = new Date(String(iso).slice(0,10) + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function mpDaysBetween(a, b){
+  return Math.round((new Date(String(b).slice(0,10) + 'T00:00:00') - new Date(String(a).slice(0,10) + 'T00:00:00')) / 864e5);
+}
+// "in 3 weeks", not "21 days" — the way he'd say it out loud.
+function mpHowFar(iso){
+  if (!iso) return '';
+  var d = mpDaysBetween(mpToday(), iso);
+  if (d < 0)   return d > -14 ? 'just gone' : 'passed';
+  if (d === 0) return 'today';
+  if (d === 1) return 'tomorrow';
+  if (d < 14)  return 'in ' + d + ' days';
+  if (d < 70)  return 'in ' + Math.round(d / 7) + ' weeks';
+  return 'in ' + Math.round(d / 30) + ' months';
+}
+
+// ── reading the rows ────────────────────────────────────────────────────────
+function mpIsRequested(m){ return !!(m && m.origin === 'requested'); }
+// The day this thing is live. An event's own day wins; otherwise the launch it
+// carries, otherwise the day it was asked for.
+function mpWhenLive(m){
+  if (!m) return null;
+  var d = m.event_date || m.launch_date || m.needed_by || null;
+  return d ? String(d).slice(0,10) : null;
+}
+// A date the SYSTEM already knows, so the flow must not ask him for it again.
+// Only a dated one-off counts (Bartolini, 2–3 Nov) — a seasonal menu's launch
+// is a plan, not a fixture, and he is allowed to move it.
+function mpKnownDate(m){
+  return (m && mpIsEventMenu(m)) ? mpMenuEventDate(m) : null;
+}
+// ══ ON THE PLAN, OR IN THE LIST ════════════════════════════════════════════
+// Two different things share this table. A menu ON THE PLAN is work someone
+// has decided to do — it shows on What's on. A menu in THE LIST is one the
+// restaurant simply runs (à la carte, Business Lunch, the Set Menus) or a date
+// already in the diary (Christmas Eve). It is not work until someone picks it,
+// so it stays off the home screen and waits in the intake box instead.
+//
+// Nothing is deleted to achieve that — it is one flag. Before the migration
+// adds the column, every menu counts as on the plan, which is exactly how the
+// module behaved before this existed.
+function mpOnPlan(m){ return !mpHasOnPlan || !m || m.on_plan !== false; }
+function mpCatalogueMenus(){
+  return mpMenus.filter(function(m){ return !mpOnPlan(m); })
+                .sort(function(a, b){ return (a.sort_order || 0) - (b.sort_order || 0); });
+}
+// Picking a thing out of the list is what puts it on the plan. It happens when
+// he commits — saves a timeline, or says he isn't sure yet — never when he is
+// only browsing, so backing out of the sheet leaves the plan as it was.
+async function mpPutOnPlan(menuId){
+  if (!mpHasOnPlan || !menuId) return true;
+  var m = mpMenus.filter(function(x){ return x.id === menuId; })[0];
+  if (!m || mpOnPlan(m)) return true;
+  var res = await sb.from('menu_plan_menus')
+    .update({ on_plan:true, updated_at:new Date().toISOString(), updated_by:mpMe.name })
+    .eq('id', menuId);
+  return !mpErr(res, 'it');
+}
+function mpStagesFor(menuId){
+  return mpCal.filter(function(c){ return c.menu_id === menuId && c.stage; })
+              .sort(function(a, b){ return String(a.starts_on) < String(b.starts_on) ? -1 : 1; });
+}
+// The stage running today, or the next one due. Returns null once they're done.
+function mpCurrentStage(menuId){
+  var t = mpToday(), st = mpStagesFor(menuId);
+  var now = st.filter(function(c){
+    return String(c.starts_on).slice(0,10) <= t && t <= String(c.ends_on || c.starts_on).slice(0,10);
+  })[0];
+  if (now) return { c:now, live:true };
+  var next = st.filter(function(c){ return String(c.starts_on).slice(0,10) > t; })[0];
+  return next ? { c:next, live:false } : null;
+}
+// The old month grid still holds something real for most of the 22: a Launch
+// square in September IS a commitment, even though it is not a timeline. Say
+// what it says rather than "no plan yet" next to a date that plainly exists.
+function mpLegacyLine(menuId){
+  var rows = mpCal.filter(function(c){ return c.menu_id === menuId && c.month && c.state; })
+                  .sort(function(a, b){ return String(a.month) < String(b.month) ? -1 : 1; });
+  if (!rows.length) return '';
+  var pick = rows.filter(function(c){ return c.state === 'Launch'; })[0] || rows[rows.length - 1];
+  return pick.state + ' ' + mpMonthLabel(String(pick.month).slice(0,10));
+}
+// ONE next action per thing. Never a list of what he owes.
+function mpNextAction(m){
+  var stages = mpStagesFor(m.id);
+  var legacy = stages.length ? '' : mpLegacyLine(m.id);
+  // Aung reads; he doesn't plan. Send him to the same sheet without the button.
+  if (!mpCanAuthor()) return { text: stages.length ? 'Planned' : (legacy || 'No plan yet'), label:'Look', go:"mpReviewPlan('" + m.id + "')" };
+  if (!stages.length){
+    return { text: mpIsRequested(m) ? 'Waiting on your dates and plan'
+                 : legacy ? legacy + ' — needs a timeline'
+                 : 'No plan yet',
+             label:'Plan it', go:"mpPlanThing('" + m.id + "')" };
+  }
+  if (m.plan_state === 'proposed'){
+    return { text: mpIsApprover() ? 'A plan is ready for you to look at' : 'Sent to Francesco',
+             label: mpIsApprover() ? 'Look at it' : 'See the plan', go:"mpReviewPlan('" + m.id + "')" };
+  }
+  var cur = mpCurrentStage(m.id);
+  if (!cur) return { text:'Every stage done', label:'See the plan', go:"mpReviewPlan('" + m.id + "')" };
+  return {
+    text: cur.live ? cur.c.stage + ' now — ' + MP_STAGE_NOTE[cur.c.stage]
+                   : cur.c.stage + ' from ' + mpDateLabel(cur.c.starts_on),
+    label:'See the plan', go:"mpReviewPlan('" + m.id + "')"
+  };
+}
+
+// Sort the whole plan into what the screen shows, in the order it shows it.
+// Campaigns and grouped menus (Set Menu A/B/C) come straight from the existing
+// mpPlanGroups(), so December stays ONE job and the set menus stay ONE row.
+function mpHomeGroups(){
+  var g = mpPlanGroups();
+  var waiting = [], dated = [], undated = [], held = {};
+  mpMenus.forEach(function(m){
+    if (!mpOnPlan(m)) return;
+    if (mpIsRequested(m) && !mpStagesFor(m.id).length){ waiting.push(m); held[m.id] = true; }
+  });
+  waiting.sort(function(a, b){ return String(a.created_at) < String(b.created_at) ? 1 : -1; });
+
+  // Anything still in the list rather than on the plan is skipped everywhere
+  // below. A Set Menu group survives if ANY of its variants is on the plan —
+  // the row is the group, and the A/B/C switcher still reaches the others.
+  g.campaigns.forEach(function(b){
+    var events = b.events.filter(function(m){ return !held[m.id] && mpOnPlan(m); });
+    var core   = (b.core && !held[b.core.id] && mpOnPlan(b.core)) ? b.core : null;
+    if (!core && !events.length) return;
+    dated.push({ type:'campaign', campaign:b.campaign, core:core, events:events,
+      when: b.campaign.date_from ? String(b.campaign.date_from).slice(0,10) : (mpWhenLive(events[0]) || '') });
+  });
+  g.mains.forEach(function(row){
+    if (row.group ? !row.variants.some(mpOnPlan) : !mpOnPlan(row.menu)) return;
+    if (!row.group && held[row.menu.id]) return;
+    var m = row.group ? mpSelVariant(row) : row.menu;
+    var when = mpWhenLive(m);
+    (when ? dated : undated).push({ type:'row', row:row, menu:m, when:when || '' });
+  });
+  g.looseEvents.forEach(function(m){
+    if (held[m.id] || !mpOnPlan(m)) return;
+    var when = mpWhenLive(m);
+    (when ? dated : undated).push({ type:'row', row:{ menu:m }, menu:m, when:when || '' });
+  });
+  dated.sort(function(a, b){ return a.when < b.when ? -1 : a.when > b.when ? 1 : 0; });
+  return { waiting:waiting, dated:dated, undated:undated };
+}
+
+function mpRenderHome(){
+  var g = mpHomeGroups();
+  var canAsk = mpIsApprover();
+  return '<div class="mp-body">' +
+
+    // ── Francesco's own surface: ask the kitchen for something ──
+    (canAsk
+      ? '<button class="mp-askbox ask" onclick="mpRequestSheet()">' +
+          '<span class="mp-askbox-q">Ask the kitchen for something</span>' +
+          '<span class="mp-askbox-h">A new activation or a menu. Paste the marketing email if that&rsquo;s easier.</span>' +
+        '</button>'
+      : '') +
+
+    // ── requested and not planned yet: top of the screen, always ──
+    (g.waiting.length
+      ? '<div class="mp-hsec wait">Asked for &mdash; needs your plan</div>' +
+        g.waiting.map(mpHomeRow).join('')
+      : '') +
+
+    // ── the one box ──
+    (mpCanAuthor()
+      ? '<button class="mp-askbox" onclick="mpOpenIntake()">' +
+          '<span class="mp-askbox-q">What do you want to develop?</span>' +
+          '<span class="mp-askbox-h">Write it how you&rsquo;d say it. You can name a few things at once.</span>' +
+        '</button>'
+      : '') +
+
+    (mpIsCostController()
+      ? '<div class="mp-card"><div class="mp-card-h">Your job</div>' +
+        '<div class="mp-hint">Open <button class="mp-link" onclick="mpGo(\'dishes\')">Dishes</button>, filter to <strong>Costing</strong>, ' +
+        'read each cost sheet and mark it Costed.</div></div>'
+      : '') +
+
+    // ── what's coming, nearest first ──
+    (g.dated.length
+      ? '<div class="mp-hsec">Coming up</div>' +
+        g.dated.map(function(b){ return b.type === 'campaign' ? mpHomeCampaign(b) : mpHomeRow(b.menu, b.row); }).join('')
+      : '') +
+
+    // ── no date yet. A prompt, not a debt. ──
+    (g.undated.length
+      ? '<div class="mp-hsec">No date yet</div>' +
+        '<div class="mp-hint">These need you to say when. Tap one and give it a window.</div>' +
+        g.undated.map(function(b){ return mpHomeRow(b.menu, b.row); }).join('')
+      : '') +
+
+    (!g.waiting.length && !g.dated.length && !g.undated.length
+      ? '<div class="mp-empty big">Nothing on the plan yet.</div>' : '') +
+  '</div>';
+}
+
+// One line per thing: what it is, when it's live, how far away, one next action.
+// A grouped row (Set Menu A/B/C) keeps its variant switcher, so three menus stay
+// one line on a phone.
+function mpHomeRow(m, row){
+  var when = mpWhenLive(m);
+  var next = mpNextAction(m);
+  var far  = mpHowFar(when);
+  return '<div class="mp-hrow' + (mpIsRequested(m) && !mpStagesFor(m.id).length ? ' wait' : '') + '">' +
+    '<div class="mp-hrow-top">' +
+      (row && row.group
+        ? '<span class="mp-hrow-name">' + mpEsc(row.group) +
+          '<select class="mp-varsel" onchange="mpSelectVariant(\'' + mpEsc(row.group) + '\', this.value)">' +
+            row.variants.map(function(v){ return '<option value="' + v.id + '"' + (v.id === m.id ? ' selected' : '') + '>' + mpEsc(v.variant_label || v.name) + '</option>'; }).join('') +
+          '</select></span>'
+        : '<span class="mp-hrow-name">' + mpEsc(m.name) + '</span>') +
+      (when ? '<span class="mp-hrow-when">' + mpEsc(mpDateLabel(when)) + '<em>' + mpEsc(far) + '</em></span>' : '') +
+    '</div>' +
+    (mpIsRequested(m) && m.requested_by
+      ? '<div class="mp-hrow-from">' + mpEsc(m.requested_by.split(' ')[0]) + ' asked for this</div>' : '') +
+    '<button class="mp-hrow-next" onclick="' + next.go + '">' +
+      '<span>' + mpEsc(next.text) + '</span><span class="mp-hrow-go">' + mpEsc(next.label) + ' &rsaquo;</span></button>' +
+  '</div>';
+}
+// A campaign is ONE job with its nights nested — December is not seven jobs.
+function mpHomeCampaign(b){
+  var c = b.campaign;
+  var range = (c.date_from ? mpDateLabel(c.date_from) : '') + (c.date_to ? ' – ' + mpDateLabel(c.date_to) : '');
+  return '<div class="mp-hcamp">' +
+    '<div class="mp-hcamp-h">' +
+      '<span class="mp-hcamp-t">' + mpEsc(c.theme || c.title || 'Campaign') + '</span>' +
+      (range ? '<span class="mp-hcamp-r">' + mpEsc(range) + '</span>' : '') +
+    '</div>' +
+    (b.core ? mpHomeRow(b.core) : '') +
+    (b.events.length
+      ? '<div class="mp-hcamp-n">' + b.events.length + ' night' + (b.events.length === 1 ? '' : 's') + ' inside it</div>' +
+        b.events.map(function(m){ return mpHomeRow(m); }).join('')
+      : '') +
+  '</div>';
+}
+
+// ══ THE ONE BOX ════════════════════════════════════════════════════════════
+function mpSpeechCtor(){ return window.SpeechRecognition || window.webkitSpeechRecognition || null; }
+let mpRec = null;
+function mpOpenIntake(seed){
+  mpSheet('What do you want to develop?',
+    '<textarea class="mp-in mp-askin" id="mpik-text" rows="4" maxlength="' + MP_MAX_NOTE + '" ' +
+      'placeholder="New à la carte for autumn, and the Bartolini dinner"></textarea>' +
+    '<div class="mp-hint">One per line, or just write it as a sentence. Nothing is saved until you have checked it.</div>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpRunIntake(this)">Continue</button>' +
+      (mpSpeechCtor() ? '<button class="mp-btn ghost" id="mpik-mic" onclick="mpDictate()">&#127908; Speak</button>' : '') +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">Cancel</button>' +
+    '</div>' +
+    mpCatalogueBlock());
+  setTimeout(function(){
+    var t = document.getElementById('mpik-text');
+    if (!t) return;
+    if (seed) t.value = seed;
+    try { t.focus(); } catch(e){}
+  }, 60);
+}
+// ── the menus we already run ───────────────────────────────────────────────
+// Under the box, not instead of it. Typing is still the way in — this is for
+// the things that don't need describing, because they already exist: à la
+// carte, Business Lunch, the Set Menus, and the nights already in the diary.
+// Tapping one takes it straight to "how long have you got?" — there is nothing
+// to read back about a menu the app already holds, and no chance of ending up
+// with two à la cartes.
+function mpCatalogueBlock(){
+  var cat = mpCatalogueMenus();
+  if (!cat.length) return '';
+  return '<div class="mp-cat">' +
+    '<div class="mp-cat-h">Or pick one we already run</div>' +
+    '<input class="mp-in mp-cat-q" type="text" id="mpik-cat-q" placeholder="Start typing to narrow it down" ' +
+      'autocomplete="off" oninput="mpCatFilter()"/>' +
+    '<div class="mp-cat-list" id="mpik-cat-list">' +
+      cat.map(function(m){
+        var when = mpKnownDate(m);
+        return '<button type="button" class="mp-cat-row" data-n="' + mpEsc(String(m.name).toLowerCase()) + '" ' +
+          'onclick="mpPickFromCatalogue(\'' + m.id + '\')">' +
+          '<span class="mp-cat-n">' + mpEsc(m.name) + '</span>' +
+          (when ? '<span class="mp-cat-d">' + mpEsc(mpDateLabel(when)) + '</span>'
+                : '<span class="mp-cat-d quiet">' + mpEsc(m.change_cadence || '') + '</span>') +
+        '</button>';
+      }).join('') +
+    '</div>' +
+    '<div class="mp-cat-none" id="mpik-cat-none" style="display:none">Nothing by that name — write it in the box above instead.</div>' +
+  '</div>';
+}
+function mpCatFilter(){
+  var q = (document.getElementById('mpik-cat-q') || {}).value || '';
+  q = q.trim().toLowerCase();
+  var rows = document.querySelectorAll('#mpik-cat-list .mp-cat-row'), shown = 0;
+  for (var i = 0; i < rows.length; i++){
+    var hit = !q || rows[i].getAttribute('data-n').indexOf(q) >= 0;
+    rows[i].style.display = hit ? '' : 'none';
+    if (hit) shown++;
+  }
+  var none = document.getElementById('mpik-cat-none');
+  if (none) none.style.display = shown ? 'none' : '';
+}
+// A menu the app already holds needs no read-back: its name, its kind and its
+// date are already right. Straight to the window question, or straight to the
+// timeline if the date is already in the diary.
+function mpPickFromCatalogue(menuId){
+  var m = mpMenus.filter(function(x){ return x.id === menuId; })[0];
+  if (!m) return;
+  mpIntake = { mode:'develop', raw:m.name, i:0,
+    items:[{ name:m.name, kind:mpMenuKind(m), menu_id:m.id, date:mpKnownDate(m) }] };
+  mpNextIntakeStep();
+}
+
+// Dictation if the browser offers it, silently absent if not. He works service
+// with one hand — talking to it beats typing on a wet phone.
+function mpDictate(){
+  var C = mpSpeechCtor(); if (!C) return;
+  var btn = document.getElementById('mpik-mic'), box = document.getElementById('mpik-text');
+  if (mpRec){ try { mpRec.stop(); } catch(e){} return; }
+  try { mpRec = new C(); } catch(e){ mpRec = null; return; }
+  mpRec.lang = 'en-GB'; mpRec.interimResults = false; mpRec.continuous = false;
+  mpRec.onresult = function(ev){
+    var said = '';
+    for (var i = 0; i < ev.results.length; i++) said += ev.results[i][0].transcript;
+    if (box) box.value = (box.value ? box.value.replace(/\s*$/, '') + ' ' : '') + said.trim();
+    mpSheetDirty = true;
+  };
+  mpRec.onerror = function(){ mpToast('Could not hear that — type it instead.', true); };
+  mpRec.onend   = function(){ mpRec = null; if (btn) btn.innerHTML = '&#127908; Speak'; };
+  try { mpRec.start(); if (btn) btn.innerHTML = 'Listening&hellip; tap to stop'; }
+  catch(e){ mpRec = null; }
+}
+
+async function mpRunIntake(btn){
+  var el = document.getElementById('mpik-text');
+  var text = (el && el.value || '').trim();
+  if (!text){ mpToast('Write what you want to develop first.', true); return; }
+  var free = mpLock(btn); if (!free) return;
+  try {
+    var items = await mpUnderstand(text);
+    if (!items.length){ mpToast('Could not make anything out of that — try naming the menu or the event.', true); return; }
+    mpIntake = { mode:'develop', raw:text, items:items, i:0 };
+    mpReadBack();
+  } finally { free(); }
+}
+
+// ── understanding his words ────────────────────────────────────────────────
+// The assistant reads the words. It is never asked for a date and never
+// believed about one — a date only reaches the screen if it came out of a menu
+// row we already hold, or out of the plain-text scan below.
+const MP_AI_URL = 'https://zrpglswalgjbtghudmhu.supabase.co/functions/v1/survey-assistant';
+async function mpUnderstand(text){
+  var read = await mpAiUnderstand(text);
+  if (!read || !read.length) read = mpFallbackUnderstand(text);
+  return read.map(function(it){
+    var known = it.menu_id ? mpMenus.filter(function(m){ return m.id === it.menu_id; })[0] : null;
+    return {
+      name:    known ? known.name : String(it.name || '').trim().slice(0, MP_MAX_NAME),
+      kind:    known ? mpMenuKind(known) : (it.kind === 'event' ? 'event' : 'main'),
+      menu_id: known ? known.id : null,
+      date:    known ? mpKnownDate(known) : mpScanDate(it.source || it.name || '')
+    };
+  }).filter(function(it){ return !!it.name; });
+}
+async function mpAiUnderstand(text){
+  try {
+    var names = mpMenus.map(function(m){ return m.name; });
+    var sys =
+      'You turn a chef\'s note into a short list of things he needs to develop.\n' +
+      'Reply with ONLY a JSON array and nothing else. Each entry is ' +
+      '{"name": a short plain title in his own words, "kind": "main" or "event", ' +
+      '"matches": the exact name from the "Already on the plan" list if he means one of those, otherwise null, ' +
+      '"source": the exact words from his note that this entry came from}.\n' +
+      '"main" is a menu that runs (à la carte, lounge, business lunch, vegan). ' +
+      '"event" is something that happens on a day or a few days (a guest dinner, an activation, a festive night).\n' +
+      'NEVER give a date, a deadline, a month or a duration, in any field. The app works those out itself.\n' +
+      'One entry per thing. If he names one thing, return one entry.';
+    var resp = await fetch(MP_AI_URL, {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer ' + SUPABASE_KEY,
+        'apikey': SUPABASE_KEY,
+        'x-proxy-secret': (typeof KITCHEN_PROXY_SECRET !== 'undefined' ? KITCHEN_PROXY_SECRET : '')
+      },
+      body: JSON.stringify({
+        action:'chat', model:'claude-sonnet-4-6', max_tokens:1000, system:sys,
+        messages:[{ role:'user', content:'Already on the plan:\n' + names.join('\n') + '\n\nHe wrote:\n' + text }]
+      })
+    });
+    if (!resp.ok) return null;
+    var data = await resp.json();
+    var hit = String((data && data.text) || '').match(/\[[\s\S]*\]/);
+    if (!hit) return null;
+    var arr = JSON.parse(hit[0]);
+    if (!Array.isArray(arr) || !arr.length) return null;
+    return arr.slice(0, 8).map(function(o){
+      var m = (o && o.matches) ? mpMenus.filter(function(x){ return x.name === o.matches; })[0] : null;
+      return { name:(o && o.name) || '', kind:(o && o.kind) || '', menu_id:m ? m.id : null, source:(o && o.source) || '' };
+    }).filter(function(o){ return o.name; });
+  } catch(e){ return null; }
+}
+
+// The deterministic read. The proxy will be down sometimes and the box still
+// has to do something sensible, so this is not a fallback in name only — it
+// runs the same read-back screen and produces the same kind of list.
+const MP_STOP_RE  = /^(a|an|the|new|another|some|do|make|create|develop|building|build|start|write|need|needs|needed|want|we|i|to|for|of|plus|and|also|please)\b\s*/i;
+const MP_EVENT_RE = /\b(dinner|night|nights|eve|day|activation|event|party|week|gala|takeover|celebration|christmas|new year|guest chef|pop.?up)\b/i;
+// Months and seasons are thrown away before matching. They say WHEN, never
+// WHICH — leaving "Dec" in made "Christmas party menu for 12 Dec" line up with
+// "Christmas Eve · 24 Dec", which then took 24 December as its date.
+const MP_TIME_WORD = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december|spring|summer|autumn|winter)$/;
+function mpWords(s){
+  return String(s || '').toLowerCase()
+    .replace(/[^a-zà-ÿ0-9 ]+/gi, ' ')
+    .split(/\s+/)
+    .filter(function(w){ return w.length > 2 && !/^(the|and|for|new|menu|our|its|with)$/.test(w) && !MP_TIME_WORD.test(w); });
+}
+// How many menu names use each word — so the matcher can tell a word that
+// picks one thing out ("bartolini") from one half the plan shares ("christmas").
+function mpWordOwners(){
+  var idx = {};
+  mpMenus.forEach(function(m){
+    var seen = {};
+    mpWords(m.name).forEach(function(w){ if (seen[w]) return; seen[w] = 1; idx[w] = (idx[w] || 0) + 1; });
+  });
+  return idx;
+}
+// Does this fragment name something already on the plan? It counts as a match
+// when two meaningful words line up, or when ONE word does that only that menu
+// uses. Anything looser claims the wrong menu, and claiming the wrong menu
+// hands him the wrong date.
+function mpMatchMenu(frag){
+  var words = mpWords(frag);
+  if (!words.length) return null;
+  var owners = mpWordOwners();
+  var best = null, bestHits = 0, bestRare = false;
+  mpMenus.forEach(function(m){
+    var overlap = mpWords(m.name).filter(function(w){ return words.indexOf(w) >= 0; });
+    if (!overlap.length) return;
+    var rare = overlap.some(function(w){ return owners[w] === 1; });
+    if (overlap.length < 2 && !rare) return;
+    if (overlap.length > bestHits || (overlap.length === bestHits && rare && !bestRare)){
+      bestHits = overlap.length; bestRare = rare; best = m;
+    }
+  });
+  return best;
+}
+function mpFallbackUnderstand(text){
+  var frags = String(text).split(/[\n;,•]|\s+\band\b\s+|\s+\+\s+/i)
+    .map(function(s){ return s.trim(); })
+    .filter(function(s){ return s.length > 2; });
+  if (!frags.length) frags = [String(text).trim()];
+  return frags.slice(0, 8).map(function(frag){
+    var name = frag;
+    for (var i = 0; i < 5; i++){ var n = name.replace(MP_STOP_RE, ''); if (n === name) break; name = n; }
+    name = name.replace(/\s+/g, ' ').trim().slice(0, MP_MAX_NAME);
+    var m = mpMatchMenu(frag);
+    return {
+      name: m ? m.name : (name.charAt(0).toUpperCase() + name.slice(1)),
+      kind: m ? mpMenuKind(m) : (MP_EVENT_RE.test(frag) ? 'event' : 'main'),
+      menu_id: m ? m.id : null,
+      source: frag
+    };
+  }).filter(function(o){ return o.name; });
+}
+// The app's own date reader — an explicit day and month only. A season ("for
+// autumn") is not a date, and inventing one from it would be the app guessing.
+const MP_MON_KEYS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+function mpScanDate(text){
+  var s = String(text || '');
+  var iso = s.match(/\b(20\d\d)-(\d{2})-(\d{2})\b/);
+  if (iso) return iso[0];
+  var day = null, mon = null;
+  var a = s.match(/\b(\d{1,2})\s*(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i);
+  if (a){ day = +a[1]; mon = a[2]; }
+  else {
+    var b = s.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{1,2})\b/i);
+    if (b){ day = +b[2]; mon = b[1]; }
+  }
+  if (!day || !mon) return null;
+  var idx = MP_MON_KEYS.indexOf(String(mon).toLowerCase().slice(0,3)) + 1;
+  if (!idx || day < 1 || day > 31) return null;
+  // The app picks the year too: the next time that day comes round.
+  var t = mpToday(), y = +t.slice(0,4);
+  var pad = String(idx).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+  var cand = y + '-' + pad;
+  return cand < t ? (y + 1) + '-' + pad : cand;
+}
+
+// ══ THE READ-BACK — nothing is saved that he hasn't confirmed ══════════════
+function mpReadBack(){
+  var req = mpIntake.mode === 'request';
+  mpSheet(req ? 'Is this what you’re asking for?' : 'Is this right?',
+    '<div class="mp-hint">This is what I understood. Change anything that&rsquo;s wrong &mdash; nothing is saved until you tap the button below.</div>' +
+    '<div class="mp-chips">' + mpIntake.items.map(mpChipCard).join('') + '</div>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpConfirmReadBack(this)">' + (req ? 'Send it' : 'Yes, that’s right') + '</button>' +
+      '<button class="mp-btn ghost" onclick="mpBackToBox()">Start again</button>' +
+    '</div>');
+}
+function mpBackToBox(){
+  var raw = mpIntake ? mpIntake.raw : '';
+  if (mpIntake && mpIntake.mode === 'request'){ mpRequestSheet(raw); return; }
+  mpOpenIntake(raw);
+}
+function mpChipCard(it, i){
+  var known = it.menu_id ? mpMenus.filter(function(m){ return m.id === it.menu_id; })[0] : null;
+  return '<div class="mp-chip">' +
+    (mpIntake.items.length > 1 ? '<button class="mp-chip-x" onclick="mpChipDrop(' + i + ')" title="Take this one off">&times;</button>' : '') +
+    '<input class="mp-in mp-chip-name" id="mpik-n' + i + '" maxlength="' + MP_MAX_NAME + '" value="' + mpEsc(it.name) + '" oninput="mpChipEdit(' + i + ',this.value)"/>' +
+    '<div class="mp-pills mp-chip-kinds">' +
+      '<button type="button" class="mp-pill' + (it.kind === 'main'  ? ' on' : '') + '" onclick="mpChipKind(' + i + ',\'main\')">A menu that runs</button>' +
+      '<button type="button" class="mp-pill' + (it.kind === 'event' ? ' on' : '') + '" onclick="mpChipKind(' + i + ',\'event\')">Happens on a day</button>' +
+    '</div>' +
+    (known
+      ? '<div class="mp-chip-known">Already on your plan' +
+          (it.date ? ' &middot; ' + mpEsc(mpDateLabel(it.date)) : '') +
+          '<button class="mp-link" onclick="mpChipDetach(' + i + ')">not this one</button></div>'
+      : it.date
+        ? '<div class="mp-chip-known">Reads as ' + mpEsc(mpDateLabel(it.date)) +
+          '<button class="mp-link" onclick="mpChipClearDate(' + i + ')">no date</button></div>'
+        : '') +
+  '</div>';
+}
+// Typing only stores. Re-drawing on every keystroke would take the cursor away
+// from him mid-word.
+function mpChipEdit(i, v){ if (mpIntake && mpIntake.items[i]) mpIntake.items[i].name = v; mpSheetDirty = true; }
+function mpChipsRefresh(){
+  var host = document.querySelector('#mp-sheet .mp-chips');
+  if (host) host.innerHTML = mpIntake.items.map(mpChipCard).join('');
+}
+function mpChipKind(i, k){ mpIntake.items[i].kind = k; mpSheetDirty = true; mpChipsRefresh(); }
+function mpChipDetach(i){
+  var it = mpIntake.items[i];
+  it.menu_id = null; it.date = null; mpSheetDirty = true; mpChipsRefresh();
+}
+function mpChipClearDate(i){ mpIntake.items[i].date = null; mpSheetDirty = true; mpChipsRefresh(); }
+function mpChipDrop(i){
+  mpIntake.items.splice(i, 1); mpSheetDirty = true;
+  if (!mpIntake.items.length){ mpIntake = null; mpCloseSheet(); return; }
+  mpChipsRefresh();
+}
+
+function mpNextSort(){
+  return mpMenus.reduce(function(a, m){ return Math.max(a, m.sort_order || 0); }, 0) + 10;
+}
+// Create the row for one confirmed chip. Everything made here is an ordinary
+// menu_plan_menus row, so the old Menus / Calendar / Dishes tabs see it too.
+async function mpCreateThing(it, extra){
+  var row = {
+    name: it.name,
+    kind: it.kind,
+    change_cadence: it.kind === 'event' ? 'One-off event' : 'Seasonal',
+    sort_order: mpNextSort(),
+    updated_by: mpMe.name
+  };
+  if (it.date){ row.launch_date = it.date; if (it.kind === 'event') row.event_date = it.date; }
+  if (mpHasRequests) Object.keys(extra || {}).forEach(function(k){ row[k] = extra[k]; });
+  var res = await sb.from('menu_plan_menus').insert(row).select().single();
+  if (res && res.error){ mpErr(res, 'it'); return null; }
+  return (res && res.data && res.data.id) || null;
+}
+
+async function mpConfirmReadBack(btn){
+  var req = mpIntake.mode === 'request';
+  for (var i = 0; i < mpIntake.items.length; i++){
+    mpIntake.items[i].name = String(mpIntake.items[i].name || '').trim();
+    if (!mpIntake.items[i].name){ mpToast('Every one needs a name.', true); return; }
+  }
+  var free = mpLock(btn); if (!free) return;
+  try {
+    var extra = req
+      ? { origin:'requested', requested_by:mpMe.name, request_note:mpIntake.raw, needed_by:mpIntake.neededBy || null }
+      : { origin:'self' };
+    for (var j = 0; j < mpIntake.items.length; j++){
+      var it = mpIntake.items[j];
+      if (it.menu_id){
+        // Already on the plan. A request against an existing thing still has to
+        // say who asked and what for, or it lands on his home as a mystery.
+        if (req && mpHasRequests){
+          var up = await sb.from('menu_plan_menus').update({
+            origin:'requested', requested_by:mpMe.name, request_note:mpIntake.raw,
+            needed_by: mpIntake.neededBy || null, updated_at:new Date().toISOString(), updated_by:mpMe.name
+          }).eq('id', it.menu_id);
+          if (mpErr(up, 'the request')) return;
+        }
+        continue;
+      }
+      var id = await mpCreateThing(it, extra);
+      if (!id) return;
+      it.menu_id = id;
+    }
+    await mpLoadAll();
+    if (req){
+      mpIntake = null; mpCloseSheet(); mpRender();
+      mpToast('Sent to the kitchen');
+      return;
+    }
+    mpIntake.i = 0;
+    mpNextIntakeStep();
+  } finally { free(); }
+}
+
+// ══ HOW LONG HAVE YOU GOT? — the only duration input in the product ════════
+function mpNextIntakeStep(){
+  if (!mpIntake) return;
+  if (mpIntake.i >= mpIntake.items.length){
+    mpIntake = null; mpCloseSheet(); mpRender(); mpToast('Saved');
+    return;
+  }
+  var it = mpIntake.items[mpIntake.i];
+  var m  = mpMenus.filter(function(x){ return x.id === it.menu_id; })[0];
+  var known = m ? mpKnownDate(m) : null;
+  // A date the system already holds is never asked for again.
+  if (known) mpOpenTimeline(it.menu_id, mpToday(), String(known).slice(0,10));
+  else mpAskWindow();
+}
+function mpAskWindow(){
+  var it = mpIntake.items[mpIntake.i];
+  var t  = mpToday();
+  var opts = [['1 week', 7], ['1 month', 30], ['3 months', 90], ['6 months', 180]];
+  mpSheet('How long have you got?',
+    '<div class="mp-hint">For <strong>' + mpEsc(it.name) + '</strong>' +
+      (mpIntake.items.length > 1 ? ' &mdash; ' + (mpIntake.i + 1) + ' of ' + mpIntake.items.length : '') + '</div>' +
+    '<div class="mp-windows">' + opts.map(function(o){
+      return '<button class="mp-window" onclick="mpPickWindow(' + o[1] + ')">' + o[0] +
+        '<em>ready ' + mpEsc(mpDateLabel(mpAddDays(t, o[1]))) + '</em></button>';
+    }).join('') + '</div>' +
+    '<label class="mp-lab">Or ready by a date</label>' +
+    '<input class="mp-in" type="date" id="mpik-by" min="' + mpAddDays(t, 1) + '"/>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpPickWindowDate()">Use this date</button>' +
+      '<button class="mp-btn ghost" onclick="mpSkipWindow()">Not sure yet</button>' +
+    '</div>');
+}
+function mpPickWindow(days){
+  var it = mpIntake.items[mpIntake.i];
+  mpOpenTimeline(it.menu_id, mpToday(), mpAddDays(mpToday(), days));
+}
+function mpPickWindowDate(){
+  var el = document.getElementById('mpik-by');
+  var v = el && el.value;
+  if (!v){ mpToast('Pick a date, or tap one of the four above.', true); return; }
+  if (v <= mpToday()){ mpToast('That date has already gone — pick a later one.', true); return; }
+  mpOpenTimeline(mpIntake.items[mpIntake.i].menu_id, mpToday(), v);
+}
+async function mpSkipWindow(){
+  // It stays on his list under "No date yet". That is a prompt, not a debt —
+  // and "not sure when" is still a decision to do it, so it comes out of the
+  // list onto the plan just as a dated one would.
+  var it = mpIntake.items[mpIntake.i];
+  if (it && it.menu_id){
+    if (!(await mpPutOnPlan(it.menu_id))) return;
+    await mpLoadAll();
+  }
+  mpIntake.i++; mpNextIntakeStep();
+}
+
+// ══ THE TIMELINE ═══════════════════════════════════════════════════════════
+// The four stages spread across the window he gave, Photoshoot floating. Every
+// number here is integer day arithmetic done in this file.
+// ══ THE TIMELINE ═══════════════════════════════════════════════════════════
+// Every block carries its OWN two dates. That is the whole point: changing when
+// Testing finishes changes Testing and nothing else. Blocks may overlap, and
+// may leave a gap between them — both happen in a real kitchen, and pretending
+// otherwise is what made adjusting a single date impossible.
+//
+// The first suggestion is still the four stages back to back across the window
+// he gave. From then on he moves whichever dates he means to move.
+function mpTlBlocks(){
+  var b = mpTl.parts.slice();
+  if (mpTl.photo.on) b.push(mpTl.photo);
+  return b;
+}
+function mpTlStart(){
+  return mpTlBlocks().reduce(function(a, p){ return !a || p.from < a ? p.from : a; }, null) || mpToday();
+}
+function mpTlEnd(){
+  return mpTlBlocks().reduce(function(a, p){ return !a || p.to > a ? p.to : a; }, null) || mpToday();
+}
+function mpTlTotal(){ return Math.max(1, mpDaysBetween(mpTlStart(), mpTlEnd()) + 1); }
+function mpTlLen(p){ return Math.max(1, mpDaysBetween(p.from, p.to) + 1); }
+function mpTlShift(p, days){ p.from = mpAddDays(p.from, days); p.to = mpAddDays(p.to, days); }
+
+function mpBuildTimeline(start, end){
+  var total = Math.max(4, mpDaysBetween(start, end) + 1);
+  var days = MP_STAGES.map(function(s){ return Math.max(1, Math.floor(total * MP_STAGE_WEIGHT[s])); });
+  // Rounding must never leak or invent a day: the slack lands on Development,
+  // and if that would take it below one day we take it back off the longest.
+  var used = days.reduce(function(a, d){ return a + d; }, 0);
+  days[0] += (total - used);
+  while (days[0] < 1){
+    var bi = 1, bd = 0;
+    for (var k = 1; k < days.length; k++) if (days[k] > bd){ bd = days[k]; bi = k; }
+    if (bd <= 1) break;
+    days[bi]--; days[0]++;
+  }
+  var acc = 0;
+  var parts = MP_STAGES.map(function(s, i){
+    var from = mpAddDays(start, acc);
+    acc += days[i];
+    return { stage:s, from:from, to:mpAddDays(start, acc - 1) };
+  });
+  // Photoshoot starts where Testing ends and runs into Approval — the overlap
+  // the old one-stage-per-month calendar could never hold.
+  var pd = Math.max(1, Math.round(total * 0.08));
+  var pOff = Math.max(0, Math.min(days[0] + days[1], total - pd));
+  return { parts:parts,
+           photo:{ stage:MP_PHOTO_STAGE, on:true, from:mpAddDays(start, pOff), to:mpAddDays(start, pOff + pd - 1) } };
+}
+// Rebuild the working timeline from what is actually saved, so going back to a
+// plan opens THAT plan. It used to spread a fresh one from today every time,
+// which quietly threw away every date he had set — the reason he could never
+// go back and adjust one stage.
+function mpTlFromSaved(menuId){
+  var st = mpStagesFor(menuId);
+  if (!st.length) return null;
+  var day = function(v){ return String(v).slice(0, 10); };
+  var main  = st.filter(function(c){ return c.stage !== MP_PHOTO_STAGE; });
+  var photo = st.filter(function(c){ return c.stage === MP_PHOTO_STAGE; })[0];
+  if (!main.length) return null;
+  var parts = main.map(function(c){
+    return { stage:c.stage, from:day(c.starts_on), to:day(c.ends_on || c.starts_on) };
+  });
+  var ph = photo
+    ? { stage:MP_PHOTO_STAGE, on:true, from:day(photo.starts_on), to:day(photo.ends_on || photo.starts_on) }
+    : { stage:MP_PHOTO_STAGE, on:false, from:parts[0].from, to:parts[0].from };
+  var have = parts.map(function(p){ return p.stage; });
+  return { menuId:menuId, parts:parts, photo:ph, was:{},
+           skipped: MP_STAGES.filter(function(s){ return have.indexOf(s) < 0; }) };
+}
+function mpOpenTimeline(menuId, start, end){
+  var m = mpMenus.filter(function(x){ return x.id === menuId; })[0];
+  if (!m) return;
+  var saved = mpTlFromSaved(menuId);
+  if (saved){ mpTl = saved; mpTimelineSheet(); return; }
+  var built = mpBuildTimeline(start, end);
+  mpTl = { menuId:menuId, parts:built.parts, photo:built.photo, skipped:[], was:{} };
+  mpTimelineSheet();
+}
+function mpTimelineSheet(){
+  var m = mpMenus.filter(function(x){ return x.id === mpTl.menuId; })[0];
+  mpSheet('Plan ' + (m ? m.name : ''), mpTimelineBody());
+}
+
+function mpTimelineBody(){
+  var start = mpTlStart(), total = mpTlTotal();
+  var pos = function(p){
+    return 'left:' + ((mpDaysBetween(start, p.from) / total) * 100).toFixed(3) + '%;' +
+           'width:' + ((mpTlLen(p) / total) * 100).toFixed(3) + '%';
+  };
+  var segs = mpTl.parts.map(function(p, i){
+    return '<span class="mp-tl-seg s-' + p.stage.toLowerCase() + '" style="' + pos(p) + '" ' +
+      'onpointerdown="mpTlDown(event,' + i + ',&quot;part&quot;)" title="Drag to move this block">' +
+      '<b>' + mpEsc(p.stage) + '</b></span>';
+  }).join('');
+  var ph = mpTl.photo;
+  return '<div class="mp-hint">' + total + ' days &mdash; ' + mpEsc(mpDateLabel(start)) +
+      ' to ' + mpEsc(mpDateLabel(mpTlEnd())) + '. Drag a block to move it, or set its dates below. ' +
+      'Each phase is on its own &mdash; changing one date changes only that phase.</div>' +
+    '<div class="mp-tl">' +
+      '<div class="mp-tl-track" id="mp-tl-track">' + segs + '</div>' +
+      '<div class="mp-tl-track photo" id="mp-tl-photo">' +
+        (ph.on
+          ? '<span class="mp-tl-seg s-photoshoot" style="' + pos(ph) + '" ' +
+            'onpointerdown="mpTlDown(event,-1,&quot;photo&quot;)"><b>' + MP_PHOTO_STAGE + '</b></span>'
+          : '<span class="mp-tl-off">No photoshoot</span>') +
+      '</div>' +
+    '</div>' +
+    '<div class="mp-stagelist" id="mp-stagelist">' + mpTlStageRows() + '</div>' +
+    (mpHasStages ? ''
+      : '<div class="mp-banner warn">This plan can&rsquo;t be saved yet &mdash; ' +
+        '<strong>menu-plan-front-door.sql</strong> has to be run once in Supabase. ' +
+        'Saving now records only the date it needs to be ready by.</div>') +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpSaveTimeline(this)">Save this plan</button>' +
+      '<button class="mp-btn ghost" onclick="mpTlCancel()">Cancel</button>' +
+    '</div>';
+}
+// Every phase says, in words, when it starts and when it finishes — and both
+// are fields, not labels. Dragging the bar is for shaping it roughly; this is
+// for saying "Testing finishes on the 8th" and meaning it.
+function mpTlDateCell(id, label, value, handler){
+  return '<label class="mp-tld">' +
+    '<span>' + label + '</span>' +
+    '<input class="mp-in mp-tld-in" type="date" id="' + id + '" value="' + mpEsc(value) + '" onchange="' + handler + '"/>' +
+  '</label>';
+}
+function mpTlStageRows(){
+  var rows = mpTl.parts.map(function(p, i){
+    var n = mpTlLen(p);
+    return '<div class="mp-stagerow wide">' +
+      '<div class="mp-stagerow-t">' +
+        '<i class="mp-swatch s-' + p.stage.toLowerCase() + '"></i>' +
+        '<span class="mp-stage-n"><strong>' + mpEsc(p.stage) + '</strong>' +
+          '<em>' + n + ' day' + (n === 1 ? '' : 's') + '</em></span>' +
+        (mpTl.parts.length > 1 ? '<button class="mp-btn ghost small" onclick="mpTlSkip(&quot;' + p.stage + '&quot;)">Skip</button>' : '') +
+      '</div>' +
+      '<div class="mp-tldates">' +
+        mpTlDateCell('mp-tl-f' + i, 'Starts',   p.from, 'mpTlSetDate(' + i + ',&quot;from&quot;,this)') +
+        mpTlDateCell('mp-tl-t' + i, 'Finishes', p.to,   'mpTlSetDate(' + i + ',&quot;to&quot;,this)') +
+      '</div>' +
+    '</div>';
+  }).join('');
+  var ph = mpTl.photo, pn = mpTlLen(ph);
+  rows += '<div class="mp-stagerow wide">' +
+    '<div class="mp-stagerow-t">' +
+      '<i class="mp-swatch s-photoshoot"></i>' +
+      '<span class="mp-stage-n"><strong>' + MP_PHOTO_STAGE + '</strong>' +
+        (ph.on ? '<em>' + pn + ' day' + (pn === 1 ? '' : 's') + ' &middot; can sit inside the others</em>'
+               : '<em>skipped</em>') + '</span>' +
+      (ph.on
+        ? '<button class="mp-btn ghost small" onclick="mpTlPhotoOff()">Skip</button>'
+        : '<button class="mp-btn ghost small" onclick="mpTlPhotoOn()">Add it back</button>') +
+    '</div>' +
+    (ph.on
+      ? '<div class="mp-tldates">' +
+          mpTlDateCell('mp-tl-pf', 'Starts',   ph.from, 'mpTlSetDate(-1,&quot;from&quot;,this)') +
+          mpTlDateCell('mp-tl-pt', 'Finishes', ph.to,   'mpTlSetDate(-1,&quot;to&quot;,this)') +
+        '</div>'
+      : '') +
+  '</div>';
+  if (mpTl.skipped.length){
+    rows += '<div class="mp-stage-skipped">' + mpTl.skipped.map(function(s){
+      return '<button class="mp-btn ghost small" onclick="mpTlUnskip(&quot;' + s + '&quot;)">Add ' + mpEsc(s) + ' back</button>';
+    }).join('') + '</div>';
+  }
+  return rows;
+}
+// ── setting one date ───────────────────────────────────────────────────────
+// Only the block he touched moves. The single rule is that a phase cannot
+// finish before it starts; everything else — overlapping Testing with
+// Development, leaving three empty weeks before Costing — is his call to make.
+function mpTlSetDate(i, which, el){
+  var v = el && el.value;
+  if (!v){ mpTlRefresh(); return; }
+  var p = i < 0 ? mpTl.photo : mpTl.parts[i];
+  if (!p){ mpTlRefresh(); return; }
+  if (which === 'from'){
+    if (v > p.to){ mpToast(p.stage + ' would finish before it starts. Move the finish date first.', true); mpTlRefresh(); return; }
+    p.from = v;
+  } else {
+    if (v < p.from){ mpToast(p.stage + ' would finish before it starts. Move the start date first.', true); mpTlRefresh(); return; }
+    p.to = v;
+  }
+  mpSheetDirty = true;
+  mpTlRefresh();
+}
+function mpTlRefresh(){
+  var s = document.querySelector('#mp-sheet .mp-sheet-body');
+  if (s) s.innerHTML = mpTimelineBody();
+}
+// Dragging repaints in place instead. Rebuilding the sheet mid-drag threw away
+// the very track the finger was being measured against — the first move read a
+// zero-width box and collapsed the stage to nothing.
+function mpTlPaint(){
+  var start = mpTlStart(), total = mpTlTotal();
+  var place = function(el, p){
+    if (!el) return;
+    el.style.left  = ((mpDaysBetween(start, p.from) / total) * 100).toFixed(3) + '%';
+    el.style.width = ((mpTlLen(p) / total) * 100).toFixed(3) + '%';
+  };
+  var track = document.getElementById('mp-tl-track');
+  if (track){
+    var segs = track.querySelectorAll('.mp-tl-seg');
+    mpTl.parts.forEach(function(p, i){ place(segs[i], p); });
+  }
+  if (mpTl.photo.on) place(document.querySelector('#mp-tl-photo .mp-tl-seg'), mpTl.photo);
+  var list = document.getElementById('mp-stagelist');
+  if (list) list.innerHTML = mpTlStageRows();
+}
+// ── dragging ───────────────────────────────────────────────────────────────
+// Same pointer-events habit as the calendar grip, so a finger works exactly
+// like a mouse. A block slides whole, keeping its length — the dates below are
+// where a phase gets longer or shorter.
+let mpTlDrag = null;
+function mpTlDown(e, idx, what){
+  if (e.button && e.button !== 0) return;
+  e.preventDefault(); e.stopPropagation();
+  var track = mpTlTrack(what);
+  if (!track) return;
+  var p = what === 'photo' ? mpTl.photo : mpTl.parts[idx];
+  var at = mpTlDayAt(e.clientX, track);
+  if (!p || at === null) return;
+  mpTlDrag = { idx:idx, what:what, grabbed: at - mpDaysBetween(mpTlStart(), p.from) };
+  document.addEventListener('pointermove', mpTlMove, { passive:false });
+  document.addEventListener('pointerup', mpTlUp, true);
+  document.addEventListener('pointercancel', mpTlUp, true);
+}
+function mpTlTrack(what){ return document.getElementById(what === 'photo' ? 'mp-tl-photo' : 'mp-tl-track'); }
+function mpTlDayAt(clientX, track){
+  var box = track && track.getBoundingClientRect();
+  if (!box || !box.width) return null;
+  return Math.round(((clientX - box.left) / box.width) * mpTlTotal());
+}
+function mpTlMove(e){
+  if (!mpTlDrag) return;
+  e.preventDefault();
+  // Look the track up again every time. Holding a reference across a repaint is
+  // how the finger ends up measured against an element that is no longer there.
+  var day = mpTlDayAt(e.clientX, mpTlTrack(mpTlDrag.what));
+  if (day === null) return;
+  var p = mpTlDrag.what === 'photo' ? mpTl.photo : mpTl.parts[mpTlDrag.idx];
+  if (!p) return;
+  var delta = (day - mpTlDrag.grabbed) - mpDaysBetween(mpTlStart(), p.from);
+  if (!delta) return;
+  mpTlShift(p, delta);
+  mpSheetDirty = true;
+  mpTlPaint();
+}
+function mpTlUp(){
+  if (!mpTlDrag) return;
+  mpTlDrag = null;
+  document.removeEventListener('pointermove', mpTlMove, { passive:false });
+  document.removeEventListener('pointerup', mpTlUp, true);
+  document.removeEventListener('pointercancel', mpTlUp, true);
+}
+// ── skipping ───────────────────────────────────────────────────────────────
+// A skipped stage keeps its dates in `was`, so adding it back puts it where it
+// was rather than guessing. Nothing else moves: the gap it leaves is a gap.
+function mpTlSkip(stage){
+  var i = mpTl.parts.map(function(p){ return p.stage; }).indexOf(stage);
+  if (i < 0 || mpTl.parts.length < 2) return;
+  mpTl.was[stage] = { from:mpTl.parts[i].from, to:mpTl.parts[i].to };
+  mpTl.parts.splice(i, 1);
+  mpTl.skipped.push(stage);
+  mpSheetDirty = true; mpTlRefresh();
+}
+function mpTlUnskip(stage){
+  var k = mpTl.skipped.indexOf(stage);
+  if (k < 0) return;
+  var was = mpTl.was[stage];
+  if (!was){
+    // Never had dates: a week straight after whatever runs before it.
+    var want = MP_STAGES.indexOf(stage);
+    var before = mpTl.parts.filter(function(p){ return MP_STAGES.indexOf(p.stage) < want; });
+    var prev = before.length ? before[before.length - 1] : null;
+    var from = prev ? mpAddDays(prev.to, 1) : mpTlStart();
+    was = { from:from, to:mpAddDays(from, 6) };
+  }
+  mpTl.skipped.splice(k, 1);
+  // Back into its proper place in the order, not on the end.
+  var w = MP_STAGES.indexOf(stage);
+  var at = mpTl.parts.findIndex(function(p){ return MP_STAGES.indexOf(p.stage) > w; });
+  mpTl.parts.splice(at < 0 ? mpTl.parts.length : at, 0, { stage:stage, from:was.from, to:was.to });
+  mpSheetDirty = true; mpTlRefresh();
+}
+function mpTlPhotoOff(){ mpTl.photo.on = false; mpSheetDirty = true; mpTlRefresh(); }
+function mpTlPhotoOn(){ mpTl.photo.on = true; mpSheetDirty = true; mpTlRefresh(); }
+function mpTlCancel(){
+  mpTl = null;
+  if (mpIntake){ mpIntake.i++; mpNextIntakeStep(); return; }
+  mpCloseSheet();
+}
+
+async function mpSaveTimeline(btn){
+  var menuId = mpTl.menuId;
+  var m = mpMenus.filter(function(x){ return x.id === menuId; })[0];
+  if (!m){ mpCloseSheet(); return; }
+  var free = mpLock(btn); if (!free) return;
+  try {
+    var end = mpTlEnd();
+    // The ready-by date goes on the menu whichever way round the DB is, so the
+    // thing still shows up on his list with a date before the SQL is run. The
+    // window END is that date, always — he was just asked when it has to be
+    // ready and a stale seeded launch must not outrank his answer. For anything
+    // with a fixed day (Bartolini) the end already IS that day, so this moves
+    // nothing.
+    var upd = { launch_date:end, updated_at:new Date().toISOString(), updated_by:mpMe.name };
+    if (mpMenuKind(m) === 'event') upd.event_date = end;
+    if (mpHasRequests) upd.plan_state = mpIsApprover() ? 'accepted' : 'proposed';
+    // Planning it is what moves it out of the list and onto What's on. Same
+    // write, so it cannot half-happen.
+    if (mpHasOnPlan) upd.on_plan = true;
+
+    if (mpHasStages){
+      var old = mpStagesFor(menuId);
+      for (var i = 0; i < old.length; i++){
+        var del = await sb.from('menu_plan_calendar').delete().eq('id', old[i].id);
+        if (mpErr(del, 'the plan')) return;
+      }
+      // Each block writes its own two dates, exactly as they read on screen.
+      var rows = mpTlBlocks().map(function(p){
+        return { menu_id:menuId, stage:p.stage, starts_on:p.from, ends_on:p.to,
+                 updated_by:mpMe.name, updated_at:new Date().toISOString() };
+      });
+      if (rows.length){
+        var ins = await sb.from('menu_plan_calendar').insert(rows);
+        if (mpErr(ins, 'the plan')) return;
+      }
+    }
+    var res = await sb.from('menu_plan_menus').update(upd).eq('id', menuId);
+    if (mpErr(res, 'the plan')) return;
+    mpTl = null;
+    await mpLoadAll();
+    mpToast(mpHasStages ? m.name + ' planned' : 'Ready-by date saved');
+    if (mpIntake){ mpIntake.i++; mpNextIntakeStep(); return; }
+    mpCloseSheet(); mpRender();
+  } finally { free(); }
+}
+
+// ══ ONE THING: its plan, its thread, and Francesco's accept ════════════════
+// This is what replaced the whole-plan Submit ceremony. Francesco's oversight
+// is per item now: he asks for a thing, Danilo plans it, he accepts that plan —
+// and the two of them argue it out in the thread without booking a meeting.
+function mpPlanThing(menuId){
+  var m = mpMenus.filter(function(x){ return x.id === menuId; })[0];
+  if (!m) return;
+  if (!mpCanAuthor()){ mpToast('Only the chefs and Francesco plan the work.', true); return; }
+  mpIntake = { mode:'develop', raw:'', items:[{ name:m.name, kind:mpMenuKind(m), menu_id:m.id, date:mpKnownDate(m) }], i:0 };
+  mpNextIntakeStep();
+}
+function mpReviewPlan(menuId){
+  var m = mpMenus.filter(function(x){ return x.id === menuId; })[0];
+  if (!m) return;
+  var stages = mpStagesFor(menuId);
+  var when = mpWhenLive(m);
+  mpSheet(m.name,
+    (m.request_note
+      ? '<div class="mp-reqnote"><div class="mp-reqnote-h">' +
+          mpEsc((m.requested_by || 'Francesco').split(' ')[0]) + ' asked for this</div>' +
+          mpEsc(m.request_note) +
+          (m.needed_by ? '<div class="mp-reqnote-by">Needed by ' + mpEsc(mpDateLabel(m.needed_by)) + '</div>' : '') +
+        '</div>'
+      : '') +
+    (when ? '<div class="mp-hint">Live ' + mpEsc(mpDateLabel(when)) + ' &middot; ' + mpEsc(mpHowFar(when)) + '</div>' : '') +
+    (stages.length
+      ? '<div class="mp-stagelist">' + stages.map(function(c){
+          // Tap the phase itself to move it. Going through "Change the plan" to
+          // shift one photoshoot was the long way round for the commonest job
+          // there is — the date moved, everything else stayed put.
+          var inner =
+            '<i class="mp-swatch s-' + String(c.stage).toLowerCase() + '"></i>' +
+            '<span class="mp-stage-n"><strong>' + mpEsc(c.stage) + '</strong>' +
+            '<em>' + mpEsc(mpDateLabel(c.starts_on)) + ' &rarr; ' + mpEsc(mpDateLabel(c.ends_on || c.starts_on)) + '</em></span>';
+          return mpCanAuthor()
+            ? '<button class="mp-stagerow tap" onclick="mpEditStage(\'' + c.id + '\')">' + inner +
+                '<span class="mp-stage-go">Change &rsaquo;</span></button>'
+            : '<div class="mp-stagerow">' + inner + '</div>';
+        }).join('') + '</div>' +
+        (m.plan_state === 'accepted'
+          ? '<div class="mp-why">Francesco accepted this plan.</div>'
+          : m.plan_state === 'proposed' && !mpIsApprover()
+            ? '<div class="mp-why">Francesco has it — he can accept it or write here.</div>' : '')
+      : '<div class="mp-empty">No plan on it yet.</div>') +
+    '<div class="mp-sheet-actions">' +
+      (mpIsApprover() && m.plan_state === 'proposed' && stages.length
+        ? '<button class="mp-btn go" onclick="mpAcceptPlan(\'' + m.id + '\')">Accept this plan</button>' : '') +
+      (mpCanAuthor() ? '<button class="mp-btn ghost" onclick="mpPlanThing(\'' + m.id + '\')">' +
+        (stages.length ? 'Change the plan' : 'Plan it') + '</button>' : '') +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">Close</button>' +
+    '</div>' +
+    mpCommentBlock('menu', m.id, 'Talk about this one', true));
+}
+// ── moving one phase, on its own ───────────────────────────────────────────
+// One phase, its two dates, Save. It writes that single calendar row and
+// nothing else — the other phases are not read, not rewritten, not shifted.
+// This is the short way round for the job that comes up most: the photoshoot
+// moved, the rest of the plan did not.
+function mpEditStage(rowId){
+  var c = mpCal.filter(function(x){ return x.id === rowId; })[0];
+  if (!c) return;
+  if (!mpCanAuthor()){ mpToast('Only the chefs and Francesco change the dates.', true); return; }
+  var m = mpMenus.filter(function(x){ return x.id === c.menu_id; })[0];
+  var from = String(c.starts_on).slice(0, 10);
+  var to   = String(c.ends_on || c.starts_on).slice(0, 10);
+  mpSheet(c.stage,
+    '<div class="mp-hint">' + mpEsc(m ? m.name : '') + ' &middot; moving this changes ' +
+      '<strong>' + mpEsc(c.stage) + '</strong> only. The other phases stay where they are.</div>' +
+    '<div class="mp-tldates">' +
+      mpTlDateCell('mp-es-f', 'Starts',   from, '') +
+      mpTlDateCell('mp-es-t', 'Finishes', to,   '') +
+    '</div>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpSaveStage(this,\'' + c.id + '\')">Save</button>' +
+      '<button class="mp-btn ghost" onclick="mpEditStageBack(\'' + c.menu_id + '\')">Cancel</button>' +
+    '</div>');
+}
+function mpEditStageBack(menuId){ mpCloseSheet(); mpReviewPlan(menuId); }
+async function mpSaveStage(btn, rowId){
+  var c = mpCal.filter(function(x){ return x.id === rowId; })[0];
+  if (!c) return;
+  var f = document.getElementById('mp-es-f'), t = document.getElementById('mp-es-t');
+  var from = f && f.value, to = t && t.value;
+  if (!from){ mpToast('It needs a start date.', true); return; }
+  if (!to) to = from;
+  if (to < from){ mpToast(c.stage + ' would finish before it starts. Check the two dates.', true); return; }
+  var free = mpLock(btn); if (!free) return;
+  try {
+    var res = await sb.from('menu_plan_calendar')
+      .update({ starts_on:from, ends_on:to, updated_at:new Date().toISOString(), updated_by:mpMe.name })
+      .eq('id', rowId);
+    if (mpErr(res, c.stage)) return;
+    await mpLoadAll();
+    mpToast(c.stage + ' moved');
+    mpCloseSheet(); mpRender(); mpReviewPlan(c.menu_id);
+  } finally { free(); }
+}
+
+async function mpAcceptPlan(menuId){
+  var m = mpMenus.filter(function(x){ return x.id === menuId; })[0];
+  if (!mpIsApprover() || !m) return;
+  if (!mpHasRequests){ mpToast('This needs menu-plan-front-door.sql run once first.', true); return; }
+  var ok = await mpConfirm('Accept the plan for “' + m.name + '”?',
+    'The kitchen sees it accepted and gets on with it. You can still write on it afterwards.', 'Accept');
+  if (!ok) return;
+  var res = await sb.from('menu_plan_menus').update({
+    plan_state:'accepted', updated_at:new Date().toISOString(), updated_by:mpMe.name
+  }).eq('id', menuId);
+  if (mpErr(res, 'the plan')) return;
+  mpCloseSheet(); await mpLoadAll(); mpRender(); mpToast('Accepted');
+}
+
+// ══ FRANCESCO'S REQUEST PAGE ═══════════════════════════════════════════════
+// What he wants, in his words — usually pasted straight out of a marketing
+// email. When it's needed by is optional: leave it blank and Danilo proposes it.
+function mpRequestSheet(seed){
+  if (!mpIsApprover()) return;
+  mpSheet('Ask the kitchen for something',
+    (mpHasRequests ? ''
+      : '<div class="mp-banner warn">Requests need <strong>menu-plan-front-door.sql</strong> run once in Supabase. ' +
+        'Until then this would land on the kitchen&rsquo;s list with no note saying who asked or why.</div>') +
+    '<label class="mp-lab">What do you want them to develop?</label>' +
+    '<textarea class="mp-in mp-askin" id="mpr-note" rows="5" maxlength="' + MP_MAX_NOTE + '" ' +
+      'placeholder="A new activation for December"></textarea>' +
+    '<label class="mp-lab">Needed by <em>(optional — leave it blank and Danilo proposes the date)</em></label>' +
+    '<input class="mp-in" type="date" id="mpr-by" min="' + mpAddDays(mpToday(), 1) + '"/>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpRunRequest(this)"' + (mpHasRequests ? '' : ' disabled') + '>Continue</button>' +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">Cancel</button>' +
+    '</div>');
+  setTimeout(function(){
+    var t = document.getElementById('mpr-note');
+    if (!t) return;
+    if (seed) t.value = seed;
+    try { t.focus(); } catch(e){}
+  }, 60);
+}
+async function mpRunRequest(btn){
+  var el = document.getElementById('mpr-note'), by = document.getElementById('mpr-by');
+  var text = (el && el.value || '').trim();
+  if (!text){ mpToast('Say what you want first.', true); return; }
+  var neededBy = (by && by.value) || null;
+  if (neededBy && neededBy <= mpToday()){ mpToast('That date has already gone — pick a later one.', true); return; }
+  var free = mpLock(btn); if (!free) return;
+  try {
+    var items = await mpUnderstand(text);
+    if (!items.length){ mpToast('Could not make anything out of that — name the menu or the event.', true); return; }
+    mpIntake = { mode:'request', raw:text, items:items, i:0, neededBy:neededBy };
+    mpReadBack();
+  } finally { free(); }
+}
+
+// ══ PROGRESS ═══════════════════════════════════════════════════════════════
+// What progress actually means in this kitchen, in Francesco's own words: work
+// arrives as an idea and a rhythm, Danilo proposes dishes, they get tested —
+// "could be 1 dish or 15" — and approved ones go to costing. So progress is
+// dishes moving, menu by menu.
+//
+// It used to be a scoreboard: "60 tried / 30 approved" against a target nobody
+// set. That measured a sprint the kitchen does not run. Gone, with the tutorial
+// card that explained a flow that no longer exists and the year grid that the
+// Calendar tab already owns.
+function mpStageCounts(dishes){
+  var c = { Idea:0, Trying:0, Testing:0, Approved:0, Costing:0 };
+  dishes.forEach(function(d){ if (c[d.status] !== undefined) c[d.status]++; });
+  return c;
+}
+function mpCountChips(c){
+  return ['Idea','Trying','Testing','Approved','Costing'].filter(function(k){ return c[k]; })
+    .map(function(k){
+      return '<span class="mp-pchip s-' + k.toLowerCase() + '"><b>' + c[k] + '</b>' + k.toLowerCase() + '</span>';
+    }).join('');
+}
 function mpRenderPlan(){
-  var tried = mpTriedCount(), approved = mpApprovedCount();
-  var tT = (mpSprint && mpSprint.target_tried)    || 60;
-  var tA = (mpSprint && mpSprint.target_approved) || 30;
+  var all = mpStageCounts(mpDishes);
   var next = mpNextTasting();
-  var s = (mpSprint && mpSprint.status) || 'draft';
-  var isChef = mpMe && mpMe.role === 'chef';
-  var noDates = !mpSprint || (!mpSprint.start_date && !mpSprint.end_date);
 
-  // Next steps, worded as things TO DO (not deficits). Only MAIN menus are
-  // "written" — an event menu borrows its campaign's theme, so nagging a chef to
-  // give Christmas Eve an identity/structure/lead is exactly the busywork we cut.
-  var mainMenus = mpMenus.filter(function(m){ return !mpIsEventMenu(m); });
-  var menusWritten = mainMenus.filter(function(m){ return m.identity && m.structure; }).length;
-  var todo = [];
-  if (noDates) todo.push({ label:'Set my dates and dish goal', go:'plan-sprint' });
-  var noBrief = mainMenus.filter(function(m){ return !m.identity || !m.structure; });
-  if (noBrief.length) todo.push({ label:'Write ' + noBrief.length + ' menu' + (noBrief.length === 1 ? '' : 's') + ' — what it is and its structure', go:'briefs' });
-  var noLead = mainMenus.filter(function(m){ return !m.lead_chef; });
-  if (noLead.length) todo.push({ label:'Pick a lead chef for ' + noLead.length + ' menu' + (noLead.length === 1 ? '' : 's'), go:'briefs' });
-  var emptyRows = mainMenus.filter(function(m){ return !mpCal.some(function(c){ return c.menu_id === m.id; }); });
-  if (emptyRows.length) todo.push({ label:'Put ' + emptyRows.length + ' menu' + (emptyRows.length === 1 ? '' : 's') + ' on the calendar', go:'calendar' });
-  var bareIdeas = mpBareIdeas();
-  if (bareIdeas.length) todo.push({ label:'Finish ' + bareIdeas.length + ' quick idea' + (bareIdeas.length === 1 ? '' : 's') + ' — just needs a section', go:'dishes' });
-
-  var canSubmit = mpDishes.length > 0;
-  var openC = mpOpenCommentCount('plan', null);
+  // A menu is worth a row once it has a dish on it. The rest are named at the
+  // bottom rather than hidden — an empty menu is a fact, not a failure.
+  var rows = mpMenus.map(function(m){ return { m:m, dishes:mpMenuDishPool(m.name) }; });
+  var withDishes = rows.filter(function(r){ return r.dishes.length; });
+  var empty      = rows.filter(function(r){ return !r.dishes.length && mpOnPlan(r.m); });
+  withDishes.sort(function(a, b){
+    var aw = mpWhenLive(a.m) || '9999', bw = mpWhenLive(b.m) || '9999';
+    return aw < bw ? -1 : aw > bw ? 1 : 0;
+  });
 
   return '<div class="mp-body">' +
 
-    (s === 'changes_requested'
-      ? '<div class="mp-banner warn"><strong>Francesco asked for changes.</strong> Read his comments below, fix what he asked, then submit again.</div>' : '') +
-    (s === 'approved'
-      ? '<div class="mp-banner ok"><strong>Plan approved.</strong> Keep developing dishes — that never stops.</div>' : '') +
-
-    // ── the guide (chefs only) ──
-    (isChef ? mpGuideCard() : '') +
-
-    // ── where you're at (lead with what's DONE, not what's missing) ──
+    // ── everything, at a glance ──
     '<div class="mp-card">' +
-      '<div class="mp-card-h">Where you&rsquo;re at</div>' +
+      '<div class="mp-card-h">Dishes right now</div>' +
       '<div class="mp-progress">' +
-        mpStat(mpDishes.length, 'dishes logged') +
-        mpStat(approved, 'approved') +
-        mpStat(menusWritten + ' / ' + mainMenus.length, 'menus written') +
-        mpStat(mpTastings.length, 'tasting' + (mpTastings.length === 1 ? '' : 's')) +
+        mpStat(mpDishes.length, 'in total') +
+        mpStat(all.Testing, 'testing') +
+        mpStat(all.Approved, 'approved') +
+        mpStat(all.Costing, 'costing') +
       '</div>' +
-      '<div class="mp-progress-note">Add things as they come — there&rsquo;s no rush.</div>' +
     '</div>' +
 
-    // ── the two bars ── (his own goal, phrased as ambition — not a scorecard)
-    '<div class="mp-card" id="plan-sprint">' +
-      '<div class="mp-card-h">' + (isChef ? 'My goal this season' : 'The sprint') + '</div>' +
-      (tried >= tT && approved >= tA
-        ? '<div class="mp-celebrate">&#127881; <strong>Goal hit.</strong> Both targets reached — keep going or ease off, your call.</div>'
-        : '') +
-      mpBar(isChef ? 'Dishes I’ve tried' : 'Dishes tried', tried, tT, 'var(--mp-trying)') +
-      mpBar(isChef ? 'Dishes approved' : 'Dishes approved', approved, tA, 'var(--mp-approved)') +
-      '<div class="mp-sprint-meta">' +
-        (mpSprint && (mpSprint.start_date || mpSprint.end_date)
-          ? (mpSprint.start_date ? mpEsc(mpDateLabel(mpSprint.start_date)) : '?') + ' → ' + (mpSprint.end_date ? mpEsc(mpDateLabel(mpSprint.end_date)) : '?')
-          : '<em>no dates set yet</em>') +
-      '</div>' +
-      (mpCanAuthor()
-        ? '<button class="mp-btn ghost" onclick="mpEditSprint()">' + (noDates ? 'Propose dates &amp; goal' : 'Edit dates &amp; goal') + '</button>'
+    // ── menu by menu ──
+    '<div class="mp-card">' +
+      '<div class="mp-card-h">Menu by menu</div>' +
+      (withDishes.length
+        ? withDishes.map(function(r){
+            var when = mpWhenLive(r.m);
+            var ready = r.dishes.filter(function(d){ return MP_RANK[d.status] >= 3; }).length;
+            return '<button class="mp-prow" onclick="mpMenuPage(\'' + r.m.id + '\')">' +
+              '<div class="mp-prow-t">' +
+                '<span class="mp-prow-n">' + mpEsc(r.m.name) + '</span>' +
+                (when ? '<span class="mp-prow-w">' + mpEsc(mpDateLabel(when)) + ' &middot; ' + mpEsc(mpHowFar(when)) + '</span>' : '') +
+              '</div>' +
+              '<div class="mp-prow-c">' + mpCountChips(mpStageCounts(r.dishes)) + '</div>' +
+              '<div class="mp-prow-s">' + ready + ' of ' + r.dishes.length + ' ready to go on it</div>' +
+            '</button>';
+          }).join('')
+        : '<div class="mp-empty">No dishes on any menu yet. They show up here as soon as one is tagged.</div>') +
+      (empty.length
+        ? '<div class="mp-progress-note">Nothing on yet: ' +
+            empty.map(function(r){ return mpEsc(r.m.name); }).join(' &middot; ') + '</div>'
         : '') +
     '</div>' +
 
-    // ── quick add ──
-    (mpCanAuthor() ? '<button class="mp-big" onclick="mpAddDish()">+ Add a dish</button>' : '') +
-
-    // ── next tasting ──
+    // ── the only date that matters day to day ──
     '<div class="mp-card">' +
       '<div class="mp-card-h">Next tasting</div>' +
       (next
-        ? '<div class="mp-next"><strong>' + mpEsc(mpDateLabel(next.session_date)) + (next.session_time ? ' · ' + mpEsc(next.session_time) : '') + '</strong>' +
-          (next.title ? ' · ' + mpEsc(next.title) : '') +
+        ? '<div class="mp-next"><strong>' + mpEsc(mpDateLabel(next.session_date)) + (next.session_time ? ' &middot; ' + mpEsc(next.session_time) : '') + '</strong>' +
+          (next.title ? ' &middot; ' + mpEsc(next.title) : '') +
           '<span>' + next.items.length + ' dish' + (next.items.length === 1 ? '' : 'es') + ' attached</span></div>'
         : '<div class="mp-empty">No tasting booked yet.</div>') +
       '<button class="mp-btn ghost" onclick="mpGo(\'tastings\')">Open tastings</button>' +
     '</div>' +
 
-    // ── next steps (gentle, capped at 3 — never a wall of deficits) ──
-    '<div class="mp-card">' +
-      '<div class="mp-card-h">Next steps</div>' +
-      (todo.length
-        ? '<div class="mp-todo">' + todo.slice(0, 3).map(function(t){
-            var go = t.go === 'plan-sprint' ? "document.getElementById('plan-sprint').scrollIntoView({behavior:'smooth'})" : "mpGo('" + t.go + "')";
-            return '<button class="mp-todo-row" onclick="' + go + '">' +
-              '<span>' + mpEsc(t.label) + '</span><span class="mp-todo-go">&rsaquo;</span></button>';
-          }).join('') + '</div>' +
-          (todo.length > 3 ? '<div class="mp-progress-note">&hellip;and ' + (todo.length - 3) + ' more, whenever you&rsquo;re ready.</div>' : '')
-        : '<div class="mp-empty ok">You&rsquo;re all set — submit whenever you&rsquo;re ready.</div>') +
-    '</div>' +
-
-    // ── the calendar, here for approval ──
-    '<div class="mp-card">' +
-      '<div class="mp-card-h">The year calendar</div>' +
-      '<div class="mp-hint">Tap any square to set what happens that month. Same grid as the Calendar tab.</div>' +
-      mpCalendarGrid() +
-      (mpCanAuthor() ? '<button class="mp-btn ghost" onclick="mpAddMenu()">+ Add a menu</button>' : '') +
-    '</div>' +
-
-    // ── submit / approve ──
     (mpIsCostController()
-      ? '<div class="mp-card"><div class="mp-card-h">Your job</div><div class="mp-hint">Open the <button class="mp-link" onclick="mpGo(\'dishes\')">Dishes</button> tab, filter to <strong>Costing</strong>, review each cost sheet and mark it Costed.</div></div>'
-      : '<div class="mp-card">' +
-        '<div class="mp-card-h">Submit &amp; approve</div>' +
-        '<div class="mp-statusline">' + mpEsc(mpStatusLine()) + '</div>' +
-        (mpIsApprover()
-          ? '<div class="mp-actions">' +
-              '<button class="mp-btn go" onclick="mpApprovePlan()"' + (s === 'approved' ? ' disabled' : '') + '>Approve the plan</button>' +
-              '<button class="mp-btn warn" onclick="mpRequestChanges()"' + (s === 'approved' ? ' disabled' : '') + '>Ask for changes</button>' +
-            '</div>' +
-            // Both buttons email all three chefs. Once the plan is approved they
-            // are off, and the reason is on the screen — a tooltip is invisible
-            // on a phone.
-            (s === 'approved'
-              ? '<div class="mp-why">Both are off because the plan is already approved' +
-                (mpSprint && mpSprint.approved_at ? ' (' + mpEsc(mpDateLabel(mpSprint.approved_at)) + ')' : '') +
-                ' — tapping either again would email all three chefs a second time. ' +
-                'The chefs submit again when they have changed something, and these come back.</div>'
-              : '')
-          : '<div class="mp-actions">' +
-              '<button class="mp-btn go" onclick="mpSubmitPlan()"' +
-                (canSubmit ? '' : ' disabled title="Add at least one dish before submitting"') + '>' +
-                (s === 'draft' ? 'Submit to Francesco' : 'Submit again') + '</button>' +
-            '</div>' +
-            (canSubmit ? '' : '<div class="mp-why">Add at least one dish before submitting.</div>')) +
-      '</div>') +
-
-    // ── plan-level comments (two-way) ──
-    mpCommentBlock('plan', null, 'Comments on the whole plan' + (openC ? ' (' + openC + ')' : '')) +
-  '</div>';
-}
-
-// The chef's guide: what to do, in order, and what happens after Submit. Folds
-// away once read, but stays reachable — no stress, nothing to hunt for.
-function mpGuideCard(){
-  var steps = [
-    ['1', 'Add your dishes', 'Log every dish you develop in Dishes — even the ones that don’t work.'],
-    ['2', 'Write each menu', 'On Menus, give each one an identity, a structure, a price and a lead chef.'],
-    ['3', 'Set the calendar', 'On the grid below, say which month each menu is developed, tested, launched.'],
-    ['4', 'Propose dates & goal', 'Set the sprint’s start, end and how many dishes you’re aiming for.'],
-    ['5', 'Submit', 'Send it to Francesco. He reads it, comments, and approves — or sends it back.']
-  ];
-  // Folded away for good once they close it — it is 48% of the first screen, and
-  // it was reopening itself on every single visit. Same localStorage habit as
-  // the last-lead / last-cadence / tap-your-name memories.
-  var open = mpGuideIsOpen();
-  return '<details class="mp-guide"' + (open ? ' open' : '') + ' ontoggle="mpGuideToggled(this)">' +
-    '<summary><span class="mp-guide-k">How this works</span><span class="mp-guide-hint">' + (open ? 'tap to hide' : 'tap to read') + '</span></summary>' +
-    '<div class="mp-guide-steps">' +
-      steps.map(function(s){
-        return '<div class="mp-guide-step"><span class="mp-guide-n">' + s[0] + '</span>' +
-          '<span><strong>' + mpEsc(s[1]) + '</strong><span>' + mpEsc(s[2]) + '</span></span></div>';
-      }).join('') +
-    '</div></details>';
-}
-function mpGuideIsOpen(){
-  try { return localStorage.getItem('menu-plan-guide') !== 'closed'; } catch(e){ return true; }
-}
-function mpGuideToggled(el){
-  try { localStorage.setItem('menu-plan-guide', el.open ? 'open' : 'closed'); } catch(e){}
-  var h = el.querySelector('.mp-guide-hint');
-  if (h) h.textContent = el.open ? 'tap to hide' : 'tap to read';
-}
-function mpBar(label, n, target, colour){
-  var pct = target > 0 ? Math.min(100, Math.round(n / target * 100)) : 0;
-  var hit = target > 0 && n >= target;
-  return '<div class="mp-bar-wrap' + (hit ? ' hit' : '') + '">' +
-    '<div class="mp-bar-top"><span>' + mpEsc(label) + '</span><strong>' + n + ' / ' + target + (hit ? ' <i class="mp-hitmark">&#10003;</i>' : '') + '</strong></div>' +
-    '<div class="mp-bar"><i style="width:' + pct + '%;background:' + (hit ? 'var(--mp-banked)' : colour) + '"></i></div>' +
+      ? '<div class="mp-card"><div class="mp-card-h">Your job</div><div class="mp-hint">Open ' +
+        '<button class="mp-link" onclick="mpGo(\'dishes\')">Dishes</button>, filter to <strong>Costing</strong>, ' +
+        'read each cost sheet and mark it Costed.</div></div>'
+      : '') +
   '</div>';
 }
 function mpStat(value, label){
   return '<div class="mp-stat"><b>' + mpEsc(String(value)) + '</b><span>' + mpEsc(label) + '</span></div>';
 }
 
-// Propose (chef) or edit (approver) the sprint dates + goals. One sheet, all
-// four fields at once — friendlier than four back-to-back prompts.
-function mpEditSprint(){
-  var s = mpSprint || {};
-  mpSheet(mpMe.role === 'chef' ? 'Propose your dates & goal' : 'Sprint dates & goal',
-    '<div class="mp-two">' +
-      '<div><label class="mp-lab">Start date</label><input class="mp-in" type="date" id="mps-start" value="' + mpEsc((s.start_date || '').slice(0,10)) + '"/></div>' +
-      '<div><label class="mp-lab">End date</label><input class="mp-in" type="date" id="mps-end" value="' + mpEsc((s.end_date || '').slice(0,10)) + '"/></div>' +
-    '</div>' +
-    '<div class="mp-two">' +
-      '<div><label class="mp-lab">Goal — dishes tried</label><input class="mp-in" type="number" inputmode="numeric" min="1" step="1" id="mps-tt" value="' + (s.target_tried || 60) + '"/></div>' +
-      '<div><label class="mp-lab">Goal — dishes approved</label><input class="mp-in" type="number" inputmode="numeric" min="1" step="1" id="mps-ta" value="' + (s.target_approved || 30) + '"/></div>' +
-    '</div>' +
-    '<div class="mp-sheet-actions">' +
-      '<button class="mp-btn go" onclick="mpSaveSprint()">Save</button>' +
-      '<button class="mp-btn ghost" onclick="mpCloseSheet()">Cancel</button>' +
-    '</div>');
-}
 // Checked before anything is written: a backwards date range and a goal of 0 or
 // -5 all used to save (or silently not save) and still show "✓ Sprint updated".
 function mpWholeNumber(id, what){
@@ -847,45 +1991,6 @@ async function mpSaveSprint(){
   mpCloseSheet(); await mpLoadAll(); mpRender(); mpToast('Sprint updated');
 }
 
-async function mpSubmitPlan(){
-  var ok = await mpConfirm('Submit the plan to Francesco?',
-    'He gets an email with the whole plan — calendar, menus and every dish — and can comment on each one. You can keep editing after you submit.',
-    'Submit');
-  if (!ok) return;
-  var res = await sb.from('menu_plan_sprint').upsert({
-    id:1, status:'submitted', submitted_by:mpMe.name, submitted_at:new Date().toISOString(),
-    updated_at:new Date().toISOString()
-  }, { onConflict:'id' });
-  if (mpErr(res, 'the submission')) return;
-  await mpLoadAll(); mpRender();
-  mpToast('Submitted to Francesco');
-  mpEmailPlan('submitted');
-}
-async function mpApprovePlan(){
-  var ok = await mpConfirm('Approve this plan?',
-    'The team sees it marked approved. They can still add dishes — developing never stops.',
-    'Approve');
-  if (!ok) return;
-  var res = await sb.from('menu_plan_sprint').upsert({
-    id:1, status:'approved', approved_by:mpMe.name, approved_at:new Date().toISOString(),
-    updated_at:new Date().toISOString()
-  }, { onConflict:'id' });
-  if (mpErr(res, 'the approval')) return;
-  await mpLoadAll(); mpRender(); mpToast('Plan approved');
-  mpEmailPlan('approved');
-}
-async function mpRequestChanges(){
-  var note = await mpPrompt('What needs changing?', 'textarea', '');
-  if (note === null || !String(note).trim()) return;
-  var a = await sb.from('menu_plan_comments').insert({ target_type:'plan', target_id:null, author:mpMe.name, body:String(note).trim() });
-  if (mpErr(a, 'the comment')) return;
-  var res = await sb.from('menu_plan_sprint').upsert({
-    id:1, status:'changes_requested', updated_at:new Date().toISOString()
-  }, { onConflict:'id' });
-  if (mpErr(res, 'the request')) return;
-  await mpLoadAll(); mpRender(); mpToast('Sent back with your note');
-  mpEmailPlan('changes_requested', String(note).trim());
-}
 
 // ══ 2. DISH BANK ═══════════════════════════════════════════════════════════
 // A "bare" quick idea: fast to capture, but still owes a section/menus/
@@ -1324,7 +2429,7 @@ function mpDishForm(d){
 
     // ── what's yours vs whose (reassurance, chefs only) ──
     (canEdit && mpMe.role === 'chef'
-      ? '<div class="mp-owns">You can change everything on this dish. <strong>Francesco</strong> does the final Approve; <strong>Aht We</strong> does the costing.</div>'
+      ? '<div class="mp-owns">You can change everything on this dish. <strong>Francesco</strong> does the final Approve; <strong>Aung</strong> does the costing.</div>'
       : '') +
 
     (canEdit
@@ -1878,7 +2983,7 @@ function mpMenuActions(menuId){
     '<div class="mp-statuslist">' +
       '<button class="mp-statusrow" onclick="mpCloseSheet();mpMenuLifecycle(\'' + menuId + '\')"><span class="mp-statusnote"><strong>Set the whole schedule</strong> — Develop, Testing, Photoshooting, Launch, one sheet</span></button>' +
       '<button class="mp-statusrow" onclick="mpCloseSheet();mpDuplicateMenu(\'' + menuId + '\')"><span class="mp-statusnote"><strong>Duplicate this menu</strong> — start a new one from its structure and price</span></button>' +
-      '<button class="mp-statusrow" onclick="mpCloseSheet();mpEditMenu(\'' + menuId + '\')"><span class="mp-statusnote"><strong>Edit this menu</strong> — identity, price, dates, lead chef</span></button>' +
+      '<button class="mp-statusrow" onclick="mpCloseSheet();mpEditMenu(\'' + menuId + '\')"><span class="mp-statusnote"><strong>Edit this menu</strong> — identity, price, dates</span></button>' +
       '<button class="mp-statusrow" onclick="mpCloseSheet();mpDeleteMenu(\'' + menuId + '\')"><span class="mp-statusnote"><strong>Delete this menu</strong> — remove it from the plan</span></button>' +
     '</div>');
 }
@@ -2199,7 +3304,7 @@ function mpBriefInner(m){
   var pool     = mpDishes.filter(function(d){ return (d.for_menus || []).includes(m.name); }).length;
   return '<div class="mp-menu-h">' +
       '<div><div class="mp-menu-name">' + mpEsc(m.name) + '</div>' +
-      '<div class="mp-menu-sub">' + mpEsc(m.change_cadence || '—') + (m.lead_chef ? ' · ' + mpEsc(m.lead_chef) : ' · no lead chef') + '</div></div>' +
+      '<div class="mp-menu-sub">' + mpEsc(m.change_cadence || '—') + '</div></div>' +
       '<span class="mp-mstatus s-' + (m.status || 'draft') + '">' + mpEsc(MP_MSTATUS_LABEL[m.status || 'draft']) + '</span>' +
     '</div>' +
     '<div class="mp-menu-body">' +
@@ -2216,7 +3321,7 @@ function mpBriefInner(m){
     '<div class="mp-menu-actions">' +
       (mpCanAuthor() ? '<button class="mp-btn ghost" onclick="mpEditMenu(\'' + m.id + '\')">Edit</button>' +
         '<button class="mp-btn ghost" onclick="mpPickMenuFile(\'' + m.id + '\')">&#128206; Attach Word / PDF</button>' : '') +
-      '<button class="mp-btn ghost" onclick="mpMenuDishes(\'' + m.id + '\')">See its dishes (' + pool + ')</button>' +
+      '<button class="mp-btn go" onclick="mpMenuPage(\'' + m.id + '\')">See the menu (' + pool + ' dish' + (pool === 1 ? '' : 'es') + ')</button>' +
       (mpIsApprover()
         // Approved menus show the fact as text, not as a grey button whose only
         // explanation is a tooltip nobody on a phone can see.
@@ -2419,7 +3524,6 @@ function mpEditMenu(id){
   var identityVal  = m.identity  || (tmpl ? tmpl.identity  : '');
   var structureVal = m.structure || (tmpl ? tmpl.structure : '');
   var priceVal     = m.price     || (tmpl ? tmpl.price : (blank ? (last.price || '') : ''));
-  var leadVal      = m.lead_chef || (blank ? (last.lead_chef || '') : '');
   mpSheet('Edit ' + (m.name || 'menu'),
     (tmpl ? '<div class="mp-hint">Starter text below, based on this kind of menu — tweak or replace it.</div>' : '') +
     '<label class="mp-lab">Menu name</label>' +
@@ -2433,8 +3537,6 @@ function mpEditMenu(id){
     '<label class="mp-lab">How often it changes</label>' +
     '<select class="mp-in" id="mpm-cadence">' + MP_CADENCES.map(function(c){
       return '<option' + (m.change_cadence === c ? ' selected' : '') + '>' + c + '</option>'; }).join('') + '</select>' +
-    '<label class="mp-lab">Lead chef</label>' +
-    mpSearchPicker('mpm-lead', mpMembers.filter(function(p){ return p.role !== 'cost_controller'; }).map(function(p){ return p.name; }), leadVal, 'Search or tap a name…') +
     '<div class="mp-two">' +
       '<div><label class="mp-lab">Testing date</label><input class="mp-in" type="date" id="mpm-testing" value="' + mpEsc((m.testing_date || '').slice(0,10)) + '"/></div>' +
       '<div><label class="mp-lab">Launch date</label><input class="mp-in" type="date" id="mpm-launch" value="' + mpEsc((m.launch_date || '').slice(0,10)) + '"/></div>' +
@@ -2462,20 +3564,20 @@ async function mpCreateMenu(btn){
     var last = mpLastMenuDefaults();
     var res = await sb.from('menu_plan_menus').insert({
       name:name, sort_order:max + 10, updated_by:mpMe.name,
-      lead_chef: last.lead_chef || null, change_cadence: last.change_cadence || 'Seasonal'
+      change_cadence: last.change_cadence || 'Seasonal'
     });
     if (mpErr(res, 'the menu')) return;
     mpCloseSheet(); await mpLoadAll(); mpRender(); mpToast(name + ' added');
   } finally { free(); }
 }
 // "New like this" for menus — a blank name, everything else (structure/price/
-// cadence/lead chef) carried over so a run of similar menus (the four Festive
-// ones) doesn't start from nothing each time.
+// cadence) carried over so a run of similar menus (the four Festive ones)
+// doesn't start from nothing each time.
 function mpDuplicateMenu(sourceId){
   var src = mpMenus.find(function(m){ return m.id === sourceId; });
   if (!src) return;
   mpSheet('New menu — like ' + src.name,
-    '<div class="mp-hint">Structure, price, cadence and lead chef copied from ' + mpEsc(src.name) + ' — tweak as needed.</div>' +
+    '<div class="mp-hint">Structure, price and cadence copied from ' + mpEsc(src.name) + ' — tweak as needed.</div>' +
     '<label class="mp-lab">Menu name</label>' +
     '<input class="mp-in" id="mpm-new" maxlength="' + MP_MAX_NAME + '" placeholder="e.g. ' + mpEsc(src.name) + ' — variant"/>' +
     '<div class="mp-sheet-actions">' +
@@ -2493,7 +3595,7 @@ async function mpCreateDuplicateMenu(sourceId, btn){
     var row = {
       name:name, sort_order:max + 10, updated_by:mpMe.name,
       structure: src.structure || null, price: src.price || null,
-      change_cadence: src.change_cadence || 'Seasonal', lead_chef: src.lead_chef || null
+      change_cadence: src.change_cadence || 'Seasonal'
     };
     var res = await sb.from('menu_plan_menus').insert(row);
     if (mpErr(res, 'the menu')) return;
@@ -2508,7 +3610,6 @@ async function mpSaveMenu(id){
     structure: (document.getElementById('mpm-structure').value || '').trim() || null,
     price:     (document.getElementById('mpm-price').value || '').trim() || null,
     change_cadence: document.getElementById('mpm-cadence').value,
-    lead_chef: document.getElementById('mpm-lead').value || null,
     testing_date: document.getElementById('mpm-testing').value || null,
     launch_date:  document.getElementById('mpm-launch').value || null,
     updated_at: new Date().toISOString(), updated_by: mpMe.name
@@ -2535,6 +3636,136 @@ function mpMenuDishes(id){
   if (!m) return;
   mpFilter = { section:'', menu:m.name, status:'', season:'', chef:'', q:'' };
   mpTab = 'dishes'; mpRender(); window.scrollTo(0,0);
+}
+
+// ══ THE MENU ITSELF ════════════════════════════════════════════════════════
+// One menu, on one page: what it is, and what it reads like with the dishes
+// currently in it. Nothing in the module showed this — you could tag dishes to
+// Family Brunch and never see Family Brunch. Sections come out in kitchen
+// order, and a dish that is not approved yet is still shown, just marked, so
+// he watches the menu fill up instead of waiting for it.
+function mpMenuPage(id){
+  var m = mpMenus.find(function(x){ return x.id === id; });
+  if (!m) return;
+  var pool = mpMenuDishPool(m.name);
+  var bySection = MP_SECTIONS.map(function(sec){
+    return { sec:sec, dishes: pool.filter(function(d){ return (d.section || 'Other') === sec; }) };
+  }).filter(function(g){ return g.dishes.length; });
+  var ready = pool.filter(function(d){ return MP_RANK[d.status] >= 3; }).length;
+
+  mpSheet(m.name,
+    // ── what it is ──
+    '<div class="mp-mp-id">' +
+      (m.identity
+        ? mpEsc(m.identity)
+        : '<span class="missing">No concept yet &mdash; one line: what is this menu?</span>') +
+      (m.structure ? '<div class="mp-mp-st">' + mpEsc(m.structure) + '</div>' : '') +
+      (m.price ? '<div class="mp-mp-st">' + mpEsc(m.price) + '</div>' : '') +
+    '</div>' +
+    (mpCanAuthor()
+      ? '<div class="mp-sheet-actions"><button class="mp-btn ghost" onclick="mpEditMenu(\'' + m.id + '\')">Edit what it is</button></div>'
+      : '') +
+
+    // ── the menu as it reads ──
+    '<div class="mp-mp-h">The menu' +
+      (pool.length ? '<em>' + ready + ' of ' + pool.length + ' approved</em>' : '') + '</div>' +
+    (bySection.length
+      ? '<div class="mp-mp-menu">' + bySection.map(function(g){
+          return '<div class="mp-mp-sec">' + mpEsc(g.sec) + '</div>' +
+            g.dishes.map(function(d){
+              var on = MP_RANK[d.status] >= 3;
+              return '<div class="mp-mp-dish' + (on ? '' : ' soft') + '">' +
+                '<div class="mp-mp-n">' + mpEsc(d.name_it || 'Untitled') +
+                  (d.selling_price ? '<span class="mp-mp-p">' + mpEsc(d.selling_price) + '</span>' : '') + '</div>' +
+                (d.description_en ? '<div class="mp-mp-d">' + mpEsc(d.description_en) + '</div>' : '') +
+                (on ? '' : '<div class="mp-mp-w">' + mpEsc(d.status) + ' &mdash; not approved yet</div>') +
+                (mpCanAuthor()
+                  ? '<div class="mp-mp-acts">' +
+                      '<button class="mp-btn ghost small" onclick="mpOpenDish(\'' + d.id + '\')">Open</button>' +
+                      '<button class="mp-btn ghost small" onclick="mpDropFromMenu(\'' + d.id + '\',\'' + m.id + '\')">Take off</button>' +
+                    '</div>'
+                  : '') +
+              '</div>';
+            }).join('');
+        }).join('') + '</div>'
+      : '<div class="mp-empty">Nothing on it yet. Put a dish on it below, and the menu builds itself here.</div>') +
+
+    // ── putting dishes on it ──
+    (mpCanAuthor()
+      ? '<div class="mp-sheet-actions">' +
+          '<button class="mp-btn go" onclick="mpAddToMenu(\'' + m.id + '\')">Put a dish on this menu</button>' +
+          '<button class="mp-btn ghost" onclick="mpCloseSheet()">Close</button>' +
+        '</div>'
+      : '<div class="mp-sheet-actions"><button class="mp-btn ghost" onclick="mpCloseSheet()">Close</button></div>') +
+    mpCommentBlock('menu', m.id, 'Talk about this menu', true));
+}
+// Pick from the dishes that exist, or start a new one — either way it lands on
+// this menu. Search, because by December there will be a lot of them.
+function mpAddToMenu(menuId){
+  var m = mpMenus.find(function(x){ return x.id === menuId; });
+  if (!m) return;
+  var off = mpDishes.filter(function(d){ return !(d.for_menus || []).includes(m.name); })
+                    .sort(function(a, b){ return String(a.name_it || '').localeCompare(String(b.name_it || '')); });
+  mpSheet('Put a dish on ' + m.name,
+    '<button class="mp-big" onclick="mpNewDishFor(\'' + m.id + '\')">+ A dish that doesn&rsquo;t exist yet</button>' +
+    (off.length
+      ? '<div class="mp-cat">' +
+          '<div class="mp-cat-h">Or one you have already logged</div>' +
+          '<input class="mp-in mp-cat-q" type="text" id="mpik-cat-q" placeholder="Start typing to narrow it down" ' +
+            'autocomplete="off" oninput="mpCatFilter()"/>' +
+          '<div class="mp-cat-list" id="mpik-cat-list">' +
+            off.map(function(d){
+              return '<button type="button" class="mp-cat-row" data-n="' + mpEsc(String(d.name_it || '').toLowerCase()) + '" ' +
+                'onclick="mpPutOnMenu(\'' + d.id + '\',\'' + m.id + '\')">' +
+                '<span class="mp-cat-n">' + mpEsc(d.name_it || 'Untitled') + '</span>' +
+                '<span class="mp-cat-d quiet">' + mpEsc(d.section || '') + '</span></button>';
+            }).join('') +
+          '</div>' +
+          '<div class="mp-cat-none" id="mpik-cat-none" style="display:none">Nothing by that name &mdash; add it as a new dish above.</div>' +
+        '</div>'
+      : '') +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn ghost" onclick="mpMenuPage(\'' + m.id + '\')">Back to the menu</button>' +
+    '</div>');
+}
+// A new dish started from a menu arrives already tagged to it. Reuses the
+// one-shot seed the Duplicate button already uses, so there is one way in.
+function mpNewDishFor(menuId){
+  var m = mpMenus.find(function(x){ return x.id === menuId; });
+  if (!m) return;
+  mpCloseSheet();
+  mpDuplicateSeed = { fromName:null, section:'', for_menus:[m.name], allergens:[], notes:'' };
+  mpDishForm(null);
+}
+async function mpPutOnMenu(dishId, menuId){
+  var d = mpDishes.find(function(x){ return x.id === dishId; });
+  var m = mpMenus.find(function(x){ return x.id === menuId; });
+  if (!d || !m) return;
+  var next = (d.for_menus || []).slice();
+  if (next.indexOf(m.name) < 0) next.push(m.name);
+  var res = await sb.from('menu_plan_dishes')
+    .update({ for_menus:next, updated_at:new Date().toISOString() }).eq('id', dishId);
+  if (mpErr(res, 'the dish')) return;
+  await mpLoadAll();
+  mpToast(d.name_it + ' is on ' + m.name);
+  mpMenuPage(menuId);
+}
+// Taking a dish off a menu never deletes the dish — it loses the tag and stays
+// in Dishes. Said out loud, because "Take off" next to a dish reads like delete.
+async function mpDropFromMenu(dishId, menuId){
+  var d = mpDishes.find(function(x){ return x.id === dishId; });
+  var m = mpMenus.find(function(x){ return x.id === menuId; });
+  if (!d || !m) return;
+  var ok = await mpConfirm('Take “' + d.name_it + '” off ' + m.name + '?',
+    'The dish stays in Dishes with everything on it — it just comes off this menu.', 'Take it off');
+  if (!ok) return;
+  var next = (d.for_menus || []).filter(function(x){ return x !== m.name; });
+  var res = await sb.from('menu_plan_dishes')
+    .update({ for_menus:next, updated_at:new Date().toISOString() }).eq('id', dishId);
+  if (mpErr(res, 'the dish')) return;
+  await mpLoadAll();
+  mpToast('Taken off ' + m.name);
+  mpMenuPage(menuId);
 }
 
 // ══ 5. TASTING SESSIONS ════════════════════════════════════════════════════
@@ -2978,99 +4209,6 @@ async function mpResolveComment(id){
   await mpLoadAll(); mpRender(); mpToast('Marked as done');
 }
 
-// ══ EMAIL SUMMARY ══════════════════════════════════════════════════════════
-// Reuses the generic send-stock-take mailer (to / cc / subject / html) so this
-// module needs NO new Edge Function deploy. Recipients come from
-// menu_plan_members — never a hardcoded list that can drift.
-async function mpEmailPlan(kind, note){
-  var approvers = mpMembers.filter(function(m){ return m.role === 'approver' && m.email; }).map(function(m){ return m.email; });
-  var chefs     = mpMembers.filter(function(m){ return m.role === 'chef'     && m.email; }).map(function(m){ return m.email; });
-  if (!approvers.length && !chefs.length){ mpToast('Saved, but no email addresses are set for the team.', true); return; }
-
-  var to = kind === 'submitted' ? approvers : chefs;
-  var cc = kind === 'submitted' ? chefs     : approvers;
-  var subject = kind === 'submitted'     ? "Menu Development Plan — submitted by " + mpMe.name
-              : kind === 'approved'      ? "Menu Development Plan — approved"
-              :                            "Menu Development Plan — changes requested";
-
-  try {
-    var r = await fetch(SUPABASE_URL + '/functions/v1/send-stock-take', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + SUPABASE_KEY },
-      body: JSON.stringify({ to:to, cc:cc, subject:subject, html: mpEmailHtml(kind, note) })
-    });
-    if (r.ok) mpToast('Emailed to ' + to.join(', '));
-    else mpToast('Saved in the app, but the email did not send.', true);
-  } catch(e){
-    mpToast('Saved in the app, but the email did not send.', true);
-  }
-}
-function mpEmailHtml(kind, note){
-  var tried = mpTriedCount(), approved = mpApprovedCount();
-  var head = kind === 'submitted'  ? mpEsc(mpMe.name) + ' submitted the Menu Development Plan.'
-           : kind === 'approved'   ? mpEsc(mpMe.name) + ' approved the Menu Development Plan.'
-           :                         mpEsc(mpMe.name) + ' asked for changes to the Menu Development Plan.';
-
-  var rows = mpMenus.map(function(m){
-    var cells = MP_MONTHS.map(function(mo){
-      var c = mpCellObj(m.id, mo.key);
-      var day = mpCellDayLabel(c);
-      return '<td style="border:1px solid #d8cbb6;padding:4px 5px;text-align:center;font-size:9px;' +
-        (c ? 'background:' + MP_CELL_HEX[c.state] + ';color:#fff;font-weight:700;' : 'color:#bbb;') + '">' +
-        (c ? MP_CELL_CODE[c.state] + (day ? '<br/>' + day : '') : '·') + '</td>';
-    }).join('');
-    return '<tr><td style="border:1px solid #d8cbb6;padding:4px 8px;font-size:11px;white-space:nowrap">' + mpEsc(m.name) + '</td>' + cells + '</tr>';
-  }).join('');
-
-  var briefs = mpMenus.map(function(m){
-    var files = mpFilesFor(m.id);
-    var docs = files.length
-      ? '<div style="margin-top:4px;font-size:11px">' + files.map(function(f){
-          return '&#128206; <a href="' + mpEsc(mpPublicUrl(f.file_path)) + '" style="color:#450207">' + mpEsc(f.file_name) + '</a>';
-        }).join(' &nbsp; ') + '</div>'
-      : '';
-    return '<tr>' +
-      '<td style="border:1px solid #d8cbb6;padding:6px 8px;font-size:12px"><b>' + mpEsc(m.name) + '</b>' + docs + '</td>' +
-      '<td style="border:1px solid #d8cbb6;padding:6px 8px;font-size:12px">' + mpEsc(m.identity || '—') + '</td>' +
-      '<td style="border:1px solid #d8cbb6;padding:6px 8px;font-size:12px">' + mpEsc(m.structure || '—') + '</td>' +
-      '<td style="border:1px solid #d8cbb6;padding:6px 8px;font-size:12px">' + mpEsc(m.price || '—') + '</td>' +
-      '<td style="border:1px solid #d8cbb6;padding:6px 8px;font-size:12px">' + mpEsc(m.lead_chef || '—') + '</td>' +
-    '</tr>';
-  }).join('');
-
-  var bySection = {};
-  mpDishes.forEach(function(d){ (bySection[d.section] = bySection[d.section] || []).push(d); });
-  var dishes = Object.keys(bySection).sort().map(function(sec){
-    return '<p style="margin:12px 0 4px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#450207"><b>' + mpEsc(sec) + '</b></p>' +
-      '<ul style="margin:0 0 4px 18px;padding:0">' + bySection[sec].map(function(d){
-        return '<li style="font-size:12px;margin:2px 0">' + mpEsc(d.name_it) +
-          ' <span style="color:#8a7a62">— ' + mpEsc(d.status) + (d.selling_price ? ' · ' + mpEsc(d.selling_price) : '') + '</span></li>';
-      }).join('') + '</ul>';
-  }).join('');
-
-  return '<div style="font-family:Georgia,serif;color:#2C2422;max-width:820px">' +
-    '<h2 style="color:#450207;font-weight:400;margin:0 0 4px">Menu Development Plan</h2>' +
-    '<p style="font-size:13px;color:#6a5c4a;margin:0 0 16px">' + head + '</p>' +
-    (note ? '<div style="background:#F5EEE1;border-left:4px solid #FA4700;padding:10px 14px;font-size:13px;margin-bottom:16px">' + mpEsc(note) + '</div>' : '') +
-    '<p style="font-size:13px"><b>Sprint:</b> ' + tried + ' dishes tried (target ' + ((mpSprint && mpSprint.target_tried) || 60) + ') · ' +
-      approved + ' approved (target ' + ((mpSprint && mpSprint.target_approved) || 30) + ')</p>' +
-
-    '<h3 style="color:#450207;font-weight:400;margin:20px 0 6px">The year</h3>' +
-    '<table style="border-collapse:collapse"><tr><th style="border:1px solid #d8cbb6;padding:4px 8px;font-size:10px">Menu</th>' +
-      MP_MONTHS.map(function(mo){ return '<th style="border:1px solid #d8cbb6;padding:4px 5px;font-size:10px">' + MP_MON_NAMES[mo.m] + '</th>'; }).join('') +
-    '</tr>' + rows + '</table>' +
-    '<p style="font-size:10px;color:#8a7a62">De develop · Te testing · Ph photoshoot · La launch · Li live · Ch changing</p>' +
-
-    '<h3 style="color:#450207;font-weight:400;margin:20px 0 6px">The menus</h3>' +
-    '<table style="border-collapse:collapse;width:100%"><tr>' +
-      ['Menu','Identity','Structure','Price','Lead'].map(function(h){
-        return '<th style="border:1px solid #d8cbb6;padding:5px 8px;font-size:10px;text-align:left">' + h + '</th>'; }).join('') +
-    '</tr>' + briefs + '</table>' +
-
-    '<h3 style="color:#450207;font-weight:400;margin:20px 0 6px">The dishes (' + mpDishes.length + ')</h3>' +
-    (dishes || '<p style="font-size:12px;color:#8a7a62">No dishes logged yet.</p>') +
-  '</div>';
-}
 const MP_CELL_HEX = { Develop:'#C08A55', Testing:'#3D6E9E', Photoshooting:'#8E5AA8', Launch:'#FA4700', Live:'#3F7A4B', Changing:'#450207' };
 
 // ══ SHEETS, CONFIRM, PROMPT ════════════════════════════════════════════════
@@ -3579,9 +4717,149 @@ body.mp-dragging-active{cursor:grabbing;user-select:none}
 .mp-toast.bad{background:#8A2A1A}
 .mp-tick{font-weight:700}
 
+/* ══ WHAT'S ON — the front door. Built for a 375px phone held in one hand:
+   nothing he needs in the first ten seconds sits below the fold, and every
+   tappable thing clears 44px. ══════════════════════════════════════════════ */
+.mp-askbox{display:block;width:100%;text-align:left;background:#fff;border:1.5px dashed var(--mp-line);border-radius:14px;padding:15px 16px;cursor:pointer;font-family:'Outfit',sans-serif;-webkit-tap-highlight-color:transparent}
+/* the menus we already run — under the box, never instead of it */
+.mp-cat{margin-top:18px;padding-top:14px;border-top:1px solid var(--mp-line)}
+.mp-cat-h{font:600 12px 'Outfit',sans-serif;letter-spacing:.05em;text-transform:uppercase;color:var(--mp-maroon);opacity:.75;margin-bottom:8px}
+.mp-cat-q{margin-bottom:8px}
+.mp-cat-list{max-height:266px;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:6px}
+.mp-cat-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:44px;text-align:left;background:#fff;border:1px solid var(--mp-line);border-radius:10px;padding:9px 12px;cursor:pointer;font-family:'Outfit',sans-serif;-webkit-tap-highlight-color:transparent}
+.mp-cat-row:active{background:var(--mp-cream-l)}
+.mp-cat-n{font:500 14px 'Outfit',sans-serif;color:var(--mp-ink)}
+.mp-cat-d{font:500 12px 'Outfit',sans-serif;color:var(--mp-maroon);white-space:nowrap}
+.mp-cat-d.quiet{opacity:.5;font-weight:400}
+.mp-cat-none{font:400 13px 'Outfit',sans-serif;color:var(--mp-ink);opacity:.7;padding:8px 2px}
+/* a phase says when it starts and when it finishes, and both are fields */
+.mp-stagerow.wide{display:block}
+.mp-stagerow-t{display:flex;align-items:center;gap:9px}
+.mp-tldates{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0 2px 25px}
+.mp-tld{display:flex;flex-direction:column;gap:3px}
+.mp-tld>span{font:600 10.5px 'Outfit',sans-serif;letter-spacing:.05em;text-transform:uppercase;color:var(--mp-maroon);opacity:.7}
+.mp-tld-in{min-height:44px;padding:8px 10px;font:500 13.5px 'Outfit',sans-serif}
+@media(max-width:380px){.mp-tldates{grid-template-columns:1fr;margin-left:0}}
+/* a phase in the saved plan is tappable — that IS how you move it */
+.mp-stagerow.tap{display:flex;align-items:center;gap:9px;width:100%;min-height:56px;text-align:left;background:#fff;border:1px solid var(--mp-line);border-radius:10px;padding:9px 12px;cursor:pointer;font-family:'Outfit',sans-serif;-webkit-tap-highlight-color:transparent}
+.mp-stagerow.tap:active{background:var(--mp-cream-l)}
+.mp-stage-go{margin-left:auto;font:600 12px 'Outfit',sans-serif;color:var(--mp-maroon);white-space:nowrap}
+/* the menu itself — what it reads like with the dishes currently on it */
+.mp-mp-id{font:400 14.5px 'Outfit',sans-serif;color:var(--mp-ink);line-height:1.5;padding:2px 0 4px}
+.mp-mp-id .missing{opacity:.55;font-style:italic}
+.mp-mp-st{font:400 13px 'Outfit',sans-serif;opacity:.7;margin-top:3px}
+.mp-mp-h{display:flex;align-items:baseline;gap:8px;margin:16px 0 8px;font:600 12px 'Outfit',sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--mp-maroon)}
+.mp-mp-h em{margin-left:auto;font:400 11.5px 'Outfit',sans-serif;text-transform:none;letter-spacing:0;opacity:.65}
+.mp-mp-menu{background:#fff;border:1px solid var(--mp-line);border-radius:12px;padding:14px 15px}
+.mp-mp-sec{font:600 11px 'Outfit',sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--mp-maroon);opacity:.75;margin:14px 0 7px;padding-bottom:4px;border-bottom:1px solid var(--mp-line)}
+.mp-mp-sec:first-child{margin-top:0}
+.mp-mp-dish{padding:8px 0}
+.mp-mp-dish.soft{opacity:.62}
+.mp-mp-n{display:flex;gap:10px;font:600 15px 'Cormorant Garamond',Georgia,serif;color:var(--mp-ink)}
+.mp-mp-p{margin-left:auto;font:500 13px 'Outfit',sans-serif;color:var(--mp-maroon);white-space:nowrap}
+.mp-mp-d{font:400 13px 'Outfit',sans-serif;opacity:.75;margin-top:2px}
+.mp-mp-w{font:500 11.5px 'Outfit',sans-serif;color:var(--mp-maroon);opacity:.8;margin-top:3px}
+.mp-mp-acts{display:flex;gap:6px;margin-top:6px}
+/* Progress: one row per menu, dishes counted by stage */
+.mp-prow{display:block;width:100%;text-align:left;background:#fff;border:1px solid var(--mp-line);border-radius:11px;padding:11px 13px;margin-bottom:8px;cursor:pointer;font-family:'Outfit',sans-serif;-webkit-tap-highlight-color:transparent}
+.mp-prow:active{background:var(--mp-cream-l)}
+.mp-prow-t{display:flex;align-items:baseline;gap:10px}
+.mp-prow-n{font:600 14.5px 'Outfit',sans-serif;color:var(--mp-ink)}
+.mp-prow-w{margin-left:auto;font:500 11.5px 'Outfit',sans-serif;color:var(--mp-maroon);white-space:nowrap}
+.mp-prow-c{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.mp-prow-s{font:400 12px 'Outfit',sans-serif;opacity:.65;margin-top:7px}
+.mp-pchip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font:500 11.5px 'Outfit',sans-serif;background:var(--mp-cream-l);color:var(--mp-ink)}
+.mp-pchip b{font:700 12.5px 'Outfit',sans-serif}
+.mp-pchip.s-trying{background:#FBE8CC}
+.mp-pchip.s-testing{background:#D8E7F3}
+.mp-pchip.s-approved{background:#D6EBDC}
+.mp-pchip.s-costing{background:#E6DCEE}
+.mp-askbox:active{background:var(--mp-cream)}
+.mp-askbox.ask{border-style:solid;border-color:var(--mp-maroon);background:var(--mp-maroon)}
+.mp-askbox.ask .mp-askbox-q{color:#fff}
+.mp-askbox.ask .mp-askbox-h{color:rgba(255,255,255,.72)}
+.mp-askbox-q{display:block;font-family:'Forum',Georgia,serif;font-size:19px;color:var(--mp-maroon);line-height:1.2}
+.mp-askbox-h{display:block;font-size:12.5px;color:var(--mp-mute);margin-top:5px;line-height:1.4}
+.mp-askin{min-height:96px}
+
+.mp-hsec{font-family:'Forum',Georgia,serif;font-size:16px;color:var(--mp-maroon);margin:6px 0 -4px;letter-spacing:.2px}
+.mp-hsec.wait{color:var(--mp-orange)}
+
+.mp-hrow{background:#fff;border:1px solid var(--mp-line);border-radius:12px;padding:12px 13px 6px}
+.mp-hrow.wait{border-color:#F5C79C;background:#FFF9F4}
+.mp-hrow-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.mp-hrow-name{font-size:15.5px;font-weight:600;color:var(--mp-ink);line-height:1.25;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.mp-hrow-when{flex:none;text-align:right;font-size:12.5px;font-weight:600;color:var(--mp-maroon);line-height:1.25}
+.mp-hrow-when em{display:block;font-style:normal;font-size:11px;font-weight:400;color:var(--mp-mute)}
+.mp-hrow-from{font-size:11.5px;color:var(--mp-orange);margin-top:4px;font-weight:500}
+.mp-hrow-next{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:44px;margin-top:8px;background:none;border:none;border-top:1px solid var(--mp-line);padding:11px 0 10px;font:500 13px 'Outfit',sans-serif;color:var(--mp-ink);text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.mp-hrow-next:active{opacity:.6}
+.mp-hrow-go{flex:none;color:var(--mp-orange);font-weight:600;white-space:nowrap}
+
+.mp-hcamp{background:var(--mp-cream);border:1px solid var(--mp-line);border-radius:14px;padding:11px;display:flex;flex-direction:column;gap:8px}
+.mp-hcamp-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:2px 3px}
+.mp-hcamp-t{font-family:'Forum',Georgia,serif;font-size:17px;color:var(--mp-maroon)}
+.mp-hcamp-r{font-size:11.5px;color:var(--mp-mute)}
+.mp-hcamp-n{font-size:11.5px;color:var(--mp-mute);padding:0 3px}
+
+/* read-back chips — what the system understood, editable */
+.mp-chips{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.mp-chip{position:relative;background:#fff;border:1px solid var(--mp-line);border-radius:12px;padding:11px 12px}
+/* room for the × so a 44px target doesn't sit on top of the name he's typing */
+.mp-chip-name{font-size:15px;font-weight:600;margin-bottom:8px;padding-right:46px}
+.mp-chip-kinds{margin-bottom:6px}
+.mp-chip-known{font-size:11.5px;color:var(--mp-mute);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mp-chip-x{position:absolute;top:2px;right:2px;width:44px;height:44px;background:none;border:none;font-size:21px;line-height:1;color:var(--mp-mute);cursor:pointer}
+
+/* how long have you got */
+.mp-windows{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin:12px 0 4px}
+.mp-window{min-height:60px;background:#fff;border:1px solid var(--mp-line);border-radius:11px;padding:11px 10px;font:600 15px 'Outfit',sans-serif;color:var(--mp-maroon);cursor:pointer;text-align:left}
+.mp-window:active{background:var(--mp-cream)}
+.mp-window em{display:block;font-style:normal;font-size:11px;font-weight:400;color:var(--mp-mute);margin-top:3px}
+
+/* the timeline */
+.mp-tl{margin:14px 0 4px;touch-action:none}
+.mp-tl-track{position:relative;height:44px;background:var(--mp-cream);border-radius:9px;margin-bottom:8px;overflow:visible}
+.mp-tl-track.photo{height:34px;background:repeating-linear-gradient(45deg,var(--mp-cream),var(--mp-cream) 6px,#efe4d3 6px,#efe4d3 12px)}
+.mp-tl-seg{position:absolute;top:0;bottom:0;border-radius:7px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.35)}
+.mp-tl-seg b{font-size:10px;font-weight:600;letter-spacing:.2px;padding:0 4px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.mp-tl-track.photo .mp-tl-seg{cursor:grab}
+.mp-tl-seg.s-development{background:var(--mp-develop)}
+.mp-tl-seg.s-testing{background:var(--mp-testing)}
+.mp-tl-seg.s-approval{background:var(--mp-approved)}
+.mp-tl-seg.s-costing{background:var(--mp-costing)}
+.mp-tl-seg.s-photoshoot{background:var(--mp-photoshooting)}
+/* the grab area is 28px wide even though the line reads as 3px — a 3px target
+   on a phone is a target you miss */
+.mp-tl-h{position:absolute;top:-5px;bottom:-5px;width:28px;margin-left:-14px;cursor:col-resize;z-index:3;touch-action:none}
+.mp-tl-h::after{content:'';position:absolute;left:50%;margin-left:-1.5px;top:0;bottom:0;width:3px;border-radius:2px;background:var(--mp-maroon);box-shadow:0 0 0 2px rgba(255,255,255,.7)}
+.mp-tl-off{font-size:11.5px;color:var(--mp-mute);padding:9px 10px;display:block;font-style:italic}
+
+.mp-stagelist{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.mp-stagerow{display:flex;align-items:center;gap:9px;background:#fff;border:1px solid var(--mp-line);border-radius:10px;padding:9px 10px;min-height:48px}
+.mp-stage-n{flex:1;min-width:0}
+.mp-stage-n strong{display:block;font-size:13.5px;color:var(--mp-ink)}
+.mp-stage-n em{display:block;font-style:normal;font-size:11.5px;color:var(--mp-mute);margin-top:2px}
+/* Skip / − / + are the controls he uses most on this screen — they get a real
+   thumb-sized target, not the 33px the shared .small button gives them */
+.mp-stagerow .mp-btn{min-height:44px;min-width:44px;padding:8px 10px}
+.mp-stage-skipped{display:flex;gap:7px;flex-wrap:wrap;margin-top:4px}
+.mp-stage-skipped .mp-btn{min-height:44px}
+.mp-swatch.s-development{background:var(--mp-develop)}
+.mp-swatch.s-testing{background:var(--mp-testing)}
+.mp-swatch.s-approval{background:var(--mp-approved)}
+.mp-swatch.s-costing{background:var(--mp-costing)}
+.mp-swatch.s-photoshoot{background:var(--mp-photoshooting)}
+
+/* what Francesco asked for, shown to the kitchen in his words */
+.mp-reqnote{background:#FFF3E8;border:1px solid #F5C79C;border-radius:11px;padding:11px 13px;font-size:13px;line-height:1.5;color:#5a3a1a;white-space:pre-wrap;margin-bottom:10px}
+.mp-reqnote-h{font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:#8A3B00;margin-bottom:5px;font-weight:600}
+.mp-reqnote-by{font-size:11.5px;color:#8A3B00;margin-top:7px;font-weight:600}
+
 @media(max-width:520px){
   .mp-h1{font-size:23px}
   .mp-sel{max-width:132px}
   .mp-menu-facts{gap:12px}
+  .mp-windows{grid-template-columns:1fr 1fr}
 }
 </style>`;
