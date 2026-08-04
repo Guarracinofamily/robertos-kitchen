@@ -219,6 +219,25 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .reset-btn{font-size:11px;color:#cc0000;background:none;border:1px solid #cc0000;border-radius:3px;padding:5px 12px;cursor:pointer;opacity:.55;transition:opacity .2s}
 .reset-btn:hover{opacity:1;background:#cc0000;color:#fff}
 
+/* â”€â”€ RECIPES: the three doors, and the way back â”€â”€ */
+.rcp-doors{display:grid;gap:14px;margin-top:20px;grid-template-columns:1fr}
+@media (min-width:860px){.rcp-doors{grid-template-columns:repeat(3,1fr)}}
+.rcp-door{display:flex;flex-direction:column;gap:7px;text-align:left;background:var(--cream);
+  border:1px solid var(--sabbia-dark);border-radius:9px;padding:20px 18px 18px;cursor:pointer;
+  font-family:var(--font-sans);color:inherit;min-height:64px;
+  transition:border-color .15s,transform .15s}
+.rcp-door:hover{border-color:var(--vino);transform:translateY(-2px)}
+.rcp-code{font-size:10px;letter-spacing:2.6px;text-transform:uppercase;color:var(--oliva,#4b5128)}
+.rcp-name{font-family:var(--font-serif);font-size:26px;line-height:1.1;color:var(--vino)}
+.rcp-meta{font-size:13.5px;line-height:1.6;color:var(--ink)}
+.rcp-go{margin-top:auto;padding-top:12px;font-size:10.5px;letter-spacing:1.8px;
+  text-transform:uppercase;font-weight:700;color:var(--vino)}
+/* the slim bar over each screen — the only way back to Recipes without going Home */
+.rcp-bar{flex:0 0 auto;display:flex;align-items:center;gap:12px;padding:8px 14px;
+  background:var(--sabbia-light);border-bottom:1px solid var(--sabbia-dark)}
+.rcp-bar-name{font-family:var(--font-serif);font-size:15px;color:var(--vino)}
+@media (pointer:coarse){.rcp-door{min-height:72px}.rcp-bar{padding:10px 14px}}
+
 /* â”€â”€ UNDO TOAST â”€â”€ */
 .undo-toast{display:none;position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--vino);color:var(--cream);border-radius:6px;padding:11px 18px;font-size:12px;z-index:200;align-items:center;gap:14px;white-space:nowrap;box-shadow:0 4px 20px rgba(65,2,7,.4)}
 .undo-toast.visible{display:flex}
@@ -1121,8 +1140,9 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 .kev-today{background:var(--cream);border:1px solid var(--sabbia-dark);border-left:6px solid var(--oro);border-radius:0 10px 10px 0;padding:14px 16px;margin-bottom:12px}
 .kev-today-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
 .kev-chip{display:inline-block;background:var(--vino);color:var(--cream);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;padding:4px 10px;border-radius:20px;margin-bottom:6px}
-/* A briefed event the events desk has not confirmed yet. Amber: the brief is
-   real, the booking is not firm. */
+/* A briefed event that the events desk has not confirmed yet. The kitchen is
+   told rather than left to find out — amber, because it is a caution, not an
+   error: the brief is real, the booking is not firm. */
 .kev-draft{display:inline-block;background:#FAEEDA;color:#854F0B;border:1px solid #E4C98A;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;padding:3px 9px;border-radius:20px;margin-left:6px;vertical-align:middle;white-space:nowrap}
 .kev-name{font-family:var(--font-serif);font-size:24px;color:var(--vino);line-height:1.05}
 .kev-meta{font-size:13px;color:var(--ink);margin-top:3px}.kev-meta b{color:var(--vino)}
@@ -1183,7 +1203,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     <button class="home-tile compact" onclick="openMarketList()"><span class="home-code">MKT</span><span><span class="home-name">Market List</span><span class="home-meta">Weekly order list, shared live</span></span></button>
     <button class="home-tile compact" onclick="openFishDisplay()"><span class="home-code">FISH</span><span><span class="home-name">Fish of the Day</span><span class="home-meta">Raw-bar display, edit &amp; print A3</span></span></button>
     <button class="home-tile compact" onclick="openStockTake()"><span class="home-code">STK</span><span><span class="home-name">Stock Take</span><span class="home-meta">Monthly inventory count</span></span></button>
-    <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Search dishes, method</span></span></button>
+    <button class="home-tile compact" onclick="openRecipes()"><span class="home-code">RCP</span><span><span class="home-name">Recipes</span><span class="home-meta">Create new recipes, recipe card, Food Bible, current menu, Micros request</span></span></button>
     <button class="home-tile compact" onclick="openReports()"><span class="home-code">RPT</span><span><span class="home-name">Reports</span><span class="home-meta">Date, station, item filters</span></span></button>
     <button class="home-tile compact" type="button" onclick="openScheduling()"><span class="home-code">SCH</span><span><span class="home-name">Scheduling</span><span class="home-meta">Weekly roster</span></span></button>
   </div>
@@ -1254,7 +1274,17 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <div id="fish-view" class="ops-view" style="display:none"></div>
 <div id="mytasks-view" class="ops-view" style="display:none"></div>
 <div id="stocktake-view" class="ops-view" style="display:none"></div>
+<!-- Recipes: one way in, three screens on one live record. `recipes-view` is the way
+     in; the other three hold a screen each, filled the first time it is opened and
+     then left alone, so a half-written recipe survives a trip to another screen and
+     back. -->
 <div id="recipes-view" class="ops-view" style="display:none"></div>
+<div id="recipecreate-view" class="ops-view" style="display:none"></div>
+<div id="recipecard-view" class="ops-view" style="display:none"></div>
+<div id="foodbible-view" class="ops-view" style="display:none"></div>
+<div id="menupdf-view" class="ops-view" style="display:none"></div>
+<div id="todo-view" class="ops-view" style="display:none"></div>
+<div id="micros-view" class="ops-view" style="display:none"></div>
 <div id="check-view" class="check-view" style="display:none"></div>
 <div id="closing-view" class="ops-view" style="display:none"></div>
 <div id="menuplan-view" style="display:none;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch"></div>
@@ -1290,8 +1320,8 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 <script src="market-list.js?v=1784460000"></script>
 <script src="fish-display.js?v=1786000000"></script>
 <script src="my-tasks.js?v=1786302000"></script>
-<!-- recipes.js / closing-report.js / team.js are large and open rarely; load them
-     on demand to keep cold-boot light on the always-on screens. -->
+<!-- closing-report.js / team.js are large and open rarely; load them on demand to
+     keep cold-boot light on the always-on screens. -->
 <script>
   window._lazyLoaded = window._lazyLoaded || {};
   window.lazyLoad = function(src){
@@ -1303,8 +1333,6 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
     });
     return window._lazyLoaded[src];
   };
-  // Recipe data needed by app.js's renderRecipes(); fetched on demand.
-  window.LAZY_RECIPES = 'recipes.js?v=1784460000';
   // These two define their own open* function; the shim loads the file then the
   // real definition replaces this shim and the .then() call runs it.
   function openClosingReport(){ lazyLoad('closing-report.js?v=1784570000').then(function(){ openClosingReport(); }).catch(function(){ alert('Could not load Closing Report. Check the connection and try again.'); }); }
@@ -1327,7 +1355,7 @@ body{background:var(--sabbia);font-family:var(--font-sans);min-height:100vh;-web
 </script>
 <script src="common.js?v=1784460000"></script>
 <script src="floorplan.js?v=1785997000"></script>
-<script src="app.js?v=1786480000"></script>
+<script src="app.js?v=1786500000"></script>
 
 
 <!-- â”€â”€ SCHEDULING VIEW â”€â”€ -->
@@ -1565,7 +1593,15 @@ function showUpdateBanner(newSW) {
    one we started with, newer code is live → reload once to pull it in.
    Nothing to bump by hand — the ETag changes on its own every deploy. */
 (function(){
-  var WATCH = ['index.html', 'app.js'];
+  /* The Recipes screens are SEPARATE documents, loaded into an iframe that app.js
+     builds once and then leaves alone. So a deploy that touched only one of them
+     changed nothing this guard was watching, and an app already open went on
+     running the version it started with — for hours. That is how a bug that was
+     fixed and deployed still happened on his screen, and why he could be told a
+     wording had gone while he was still looking at it. Reloading the outer page
+     rebuilds the iframe, so watching them here is enough. */
+  var WATCH = ['index.html', 'app.js',
+               'recipe-create.html', 'recipe-card.html', 'food-bible.html', 'menu-pdfs.html'];
   var boot = {}, reloading = false;
   function tagOf(res){ return res.headers.get('ETag') || res.headers.get('Last-Modified') || ''; }
   function busy(){
@@ -1573,6 +1609,14 @@ function showUpdateBanner(newSW) {
     if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return true;   // don't nuke someone mid-typing
     if (window.__schedEditing && window.__schedEditing()) return true;     // don't nuke a mid-edit schedule
     if (window.__closingActive && window.__closingActive()) return true;   // don't nuke a mid-closing-report
+    // A half-written recipe lives inside the iframe, where activeElement above is only
+    // ever the IFRAME itself. Ask the page directly — losing an unfinished sheet to an
+    // update is the one thing this module must never do.
+    var frames = document.querySelectorAll('#recipecreate-view iframe, #micros-view iframe, #todo-view iframe');
+    for (var i = 0; i < frames.length; i++) {
+      try { var w = frames[i].contentWindow;
+            if (w && w.__rcpDirty && w.__rcpDirty()) return true; } catch (e) {}
+    }
     return false;
   }
   function check(){
