@@ -700,6 +700,9 @@ function mpRender(){
       '</div>' +
       body +
     '</div>' +
+    // The mic follows him from tab to tab — it is the one control in this
+    // module that is in the same place on every screen.
+    mpMicFab() +
     '<div id="mp-toast" class="mp-toast"></div>';
 }
 function mpGo(tab){ mpTab = tab; mpRender(); window.scrollTo(0,0); }
@@ -4883,4 +4886,1001 @@ body.mp-dragging-active{cursor:grabbing;user-select:none}
   .mp-menu-facts{gap:12px}
   .mp-windows{grid-template-columns:1fr 1fr}
 }
+
+/* ── the mic, on every screen ──────────────────────────────────────────── */
+/* Bottom-right, above the thumb, clear of the tab strip at the top. It is the
+   only thing in this module that follows him from tab to tab. */
+.mp-mic-fab{position:fixed;right:16px;bottom:22px;z-index:60;width:62px;height:62px;border-radius:50%;
+  border:none;background:var(--mp-maroon,#400207);color:#fff;font-size:26px;line-height:1;
+  box-shadow:0 6px 20px rgba(0,0,0,.28);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.mp-mic-fab:active{transform:scale(.94)}
+.mp-mic-fab.live{background:#B3261E;animation:mp-pulse 1.4s ease-in-out infinite}
+@keyframes mp-pulse{0%,100%{box-shadow:0 6px 20px rgba(179,38,30,.35)}50%{box-shadow:0 6px 30px rgba(179,38,30,.85)}}
+/* the way in to the guide, for anyone who wants to read it cold */
+.mp-mic-help{position:fixed;right:16px;bottom:90px;z-index:60;border:1px solid #D8C3A5;background:rgba(255,255,255,.96);
+  color:#6a5c4a;font-size:12px;font-weight:600;border-radius:999px;padding:6px 11px;cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,.12)}
+
+/* the listening screen */
+.mp-vlive{min-height:76px;background:#FFF8F0;border:1px dashed #D8C3A5;border-radius:12px;padding:12px 13px;
+  font-size:16px;line-height:1.5;color:#3a2c1c;white-space:pre-wrap}
+.mp-vlive .interim{color:#9a8a72}
+.mp-vlive.empty{color:#9a8a72;font-style:italic}
+.mp-vlangs{display:flex;gap:6px;margin:0 0 10px}
+.mp-vlang{flex:1;height:38px;border-radius:9px;border:1.5px solid #D8C3A5;background:#fff;font-size:14px;font-weight:600;color:#6a5c4a;cursor:pointer}
+.mp-vlang.on{background:var(--mp-maroon,#400207);border-color:var(--mp-maroon,#400207);color:#fff}
+
+/* the guide — what he can say, built from his own menus and dishes */
+.mp-vguide{margin-top:12px;background:#F6F1E7;border-radius:12px;padding:12px 13px}
+.mp-vguide-h{font-size:11px;letter-spacing:1.2px;text-transform:uppercase;color:#8A3B00;font-weight:600;margin-bottom:8px}
+.mp-vguide-l{font-size:13.5px;line-height:1.75;color:#4a3c2c}
+.mp-vguide-l b{color:#2e2318}
+.mp-vsteps{font-size:13.5px;line-height:1.6;color:#4a3c2c;margin-bottom:12px}
+.mp-vsteps strong{color:#2e2318}
+
+/* the read-back card: what it understood, before anything is written */
+.mp-vdo{background:#fff;border:1.5px solid #E3D5BF;border-radius:12px;padding:13px 14px;margin-bottom:10px}
+.mp-vdo.danger{border-color:#E5A6A2;background:#FFF4F3}
+.mp-vdo-k{font-size:11px;letter-spacing:1.2px;text-transform:uppercase;font-weight:700;color:#8A3B00;margin-bottom:6px}
+.mp-vdo.danger .mp-vdo-k{color:#B3261E}
+.mp-vdo-n{font-family:Forum,serif;font-size:21px;line-height:1.25;color:#2e2318;margin-bottom:4px}
+.mp-vdo-s{font-size:13px;color:#6a5c4a;line-height:1.5}
+.mp-vheard{font-size:12.5px;color:#8a7a62;font-style:italic;margin-bottom:10px}
+
+/* undo, after a delete */
+.mp-undo{position:fixed;left:50%;transform:translateX(-50%);bottom:26px;z-index:80;display:none;
+  align-items:center;gap:14px;background:#2e2318;color:#fff;border-radius:12px;padding:12px 14px;
+  font-size:14px;box-shadow:0 8px 26px rgba(0,0,0,.34);max-width:92vw}
+.mp-undo.show{display:flex}
+.mp-undo button{background:#fff;color:#2e2318;border:none;border-radius:8px;height:34px;padding:0 14px;font-size:14px;font-weight:700;cursor:pointer}
 </style>`;
+
+// ══════════════════════════════════════════════════════════════════════════
+// VOICE — one mic, every screen, add / change / delete
+//
+// WHY THIS EXISTS. The module was solid and Danilo would not use it: too much
+// typing, too many screens to learn before anything happened. The mic is the
+// answer to that — he talks, the app fills the form, he checks it and taps once.
+//
+// THE RULES IT KEEPS (all of them are older than this feature):
+//   1. It NEVER writes on its own. Every single path ends at a read-back card
+//      with a button on it. Same rule as the typed box above.
+//   2. It NEVER guesses allergens onto a dish. The model may SUGGEST them; they
+//      arrive switched off and he taps the ones that are real. Auto-ticking
+//      allergens was defect D3 and is not coming back.
+//   3. It NEVER guesses WHICH dish he meant. One clear match, or it asks.
+//      Changing the wrong dish is worse than one extra tap.
+//   4. It NEVER produces a date. Nothing here asks the model for one, the same
+//      way mpAiUnderstand doesn't — the app owns every date in this file.
+//   5. A delete can be undone. Everything else he can just say again.
+//
+// ANDROID ONLY, deliberately: Apple does not give web apps the Web Speech API,
+// so the button is feature-detected and simply is not there on an iPhone —
+// exactly how stock-take.js handles the same problem. Danilo is on Android.
+// ══════════════════════════════════════════════════════════════════════════
+
+const MP_VOICE_LANGS = [{ code:'en-GB', label:'EN' }, { code:'it-IT', label:'IT' }];
+const MP_VOICE_LANG_KEY = 'menu-plan-voice-lang';
+// Italian is the DEFAULT, and that is a deliberate choice, not a preference.
+// He mixes the two languages whatever this is set to, so the only question is
+// which half survives the transcription — and the half that must survive is the
+// dish name, which is always Italian. An English recogniser turns "riccio" into
+// something unrecognisable; an Italian one mangles "is approved" instead, and a
+// mangled command is recoverable from context where a mangled dish name is not.
+let mpVoiceLang = (function(){
+  try { var v = localStorage.getItem(MP_VOICE_LANG_KEY); return v === 'en-GB' ? 'en-GB' : 'it-IT'; }
+  catch(e){ return 'it-IT'; }
+})();
+let mpVRec = null, mpVFinal = '', mpVInterim = '', mpVIntent = null, mpVUndo = null, mpVUndoTimer = null;
+// Everything he has finished saying this session, banked outside the recogniser
+// so that no restart — and no language switch — can take it away from him.
+let mpVCommitted = '', mpVRestarts = 0, mpVLastSaid = '';
+
+function mpVoiceSupported(){ return !!mpSpeechCtor(); }
+// The mic belongs to the people who author work. A cost controller reviews; it
+// would only ever tell them no.
+function mpVoiceAllowed(){ return mpVoiceSupported() && mpCanAuthor(); }
+function mpVoiceIt(){ return mpVoiceLang === 'it-IT'; }
+
+// The floating button, painted by mpRender onto whichever tab he is on.
+function mpMicFab(){
+  if (!mpVoiceAllowed()) return '';
+  return '<button class="mp-mic-help" onclick="mpVoiceHelp()" ' +
+           'aria-label="What can I say?">' + (mpVoiceIt() ? 'Cosa posso dire?' : 'What can I say?') + '</button>' +
+         '<button class="mp-mic-fab" id="mp-mic-fab" onclick="mpVoiceStart()" ' +
+           'title="Say what you want to do" aria-label="Say what you want to do">&#127908;</button>' +
+         '<div class="mp-undo" id="mp-undo"><span id="mp-undo-txt"></span>' +
+           '<button onclick="mpVoiceUndo()">Undo</button></div>';
+}
+
+function mpSetVoiceLang(code){
+  mpVoiceLang = code === 'it-IT' ? 'it-IT' : 'en-GB';
+  try { localStorage.setItem(MP_VOICE_LANG_KEY, mpVoiceLang); } catch(e){}
+  // Switching language mid-sentence restarts the ear, otherwise it keeps
+  // listening in the language he just rejected. What he has ALREADY said is
+  // kept — switching language is him fixing the app, and it must not cost him
+  // the sentence he just got out.
+  var listening = !!mpVRec;
+  if (listening){ mpVoiceStopEar(); mpVInterim = ''; mpVRestarts = 0; }
+  mpVoicePaint();
+  if (listening){ mpVoiceStartEar(); mpVoiceShowText(); }
+}
+
+// ── the guide ──────────────────────────────────────────────────────────────
+// It sits INSIDE the listening screen, above the live text, because the only
+// moment he wants to know what he can say is the moment before he says it.
+// Every example is built from his own menus and dishes, read from the DB — the
+// last "how this works" card in this module was hand-written, went stale the
+// first time the plan moved, and was wrong by the time he read it. This one
+// cannot go stale, because there is nothing in it to update.
+function mpVoiceSampleMenu(){
+  var main = mpMenus.filter(function(m){ return m.active !== false && mpMenuKind(m) === 'main'; })[0];
+  var any  = main || mpMenus[0];
+  return any ? any.name : (mpVoiceIt() ? 'il menù d’autunno' : 'the autumn menu');
+}
+function mpVoiceSampleDish(){
+  var d = mpDishes.filter(function(x){ return x.status !== 'Retired'; })[0] || mpDishes[0];
+  return d ? d.name_it : (mpVoiceIt() ? 'branzino al finocchio' : 'sea bass with fennel');
+}
+function mpVoiceGuideHtml(){
+  var menu = mpVoiceSampleMenu(), dish = mpVoiceSampleDish(), it = mpVoiceIt();
+  // Written the way they actually speak — half Italian, half English, no
+  // command words. If the examples were tidy sentences he would think he had to
+  // say tidy sentences, and that is the thing that makes people stop using it.
+  var lines = it ? [
+    ['Aggiungere',  'Piatto nuovo, ' + dish + ', per ' + menu],
+    ['Cambiare',    dish + ' is ready, finito'],
+    ['Togliere',    'Togli ' + dish + ' from ' + menu],
+    ['Cancellare',  'Cancella ' + dish]
+  ] : [
+    ['To add',      'Piatto nuovo, ' + dish + ', for ' + menu],
+    ['To change',   dish + ' is done, ready for testing'],
+    ['To take off', 'Take ' + dish + ' off ' + menu],
+    ['To delete',   'Cancella ' + dish]
+  ];
+  return '<div class="mp-vguide">' +
+    '<div class="mp-vguide-h">' + (it ? 'Prova a dire' : 'Try saying') + '</div>' +
+    '<div class="mp-vguide-l">' +
+      lines.map(function(l){
+        return '<div><b>' + mpEsc(l[0]) + '</b> &mdash; &ldquo;' + mpEsc(l[1]) + '&rdquo;</div>';
+      }).join('') +
+      '<div style="margin-top:8px;color:#8a7a62">' + (it
+        ? 'Non devi dirlo così — dillo come viene.'
+        : 'You don’t have to say it like this — say it however it comes out.') + '</div>' +
+    '</div></div>';
+}
+// The three-line version, always on screen above the live text. Not a tutorial:
+// it is the contract — talk, check, tap. Three lines is the whole guide.
+function mpVoiceStepsHtml(){
+  return '<div class="mp-vsteps">' + (mpVoiceIt()
+    ? '<strong>Parla normalmente.</strong> Poi ti mostro cosa ho capito. <strong>Non salvo niente</strong> finché non tocchi il pulsante.'
+    : '<strong>Just talk.</strong> Then I show you what I understood. <strong>Nothing is saved</strong> until you tap the button.') +
+  '</div>';
+}
+// Reachable from outside the mic too, for anyone who wants to read it cold.
+function mpVoiceHelp(){
+  mpSheet(mpVoiceIt() ? 'Come funziona la voce' : 'How the voice works',
+    mpVoiceStepsHtml() + mpVoiceGuideHtml() +
+    '<div class="mp-hint">' + (mpVoiceIt()
+      ? 'Non devi imparare le frasi — dillo come ti viene. Se non capisco, te lo dico e non tocco niente.'
+      : 'You don’t have to learn the phrases — say it however it comes out. If I can’t work it out I tell you, and I change nothing.') + '</div>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpVoiceStart()">' + (mpVoiceIt() ? 'Parla' : 'Start talking') + '</button>' +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">' + (mpVoiceIt() ? 'Chiudi' : 'Close') + '</button>' +
+    '</div>');
+}
+
+// ── listening ──────────────────────────────────────────────────────────────
+// continuous + interim, exactly like the stock-take voice count: he is a chef
+// thinking mid-sentence, and an ear that stops at the first pause cuts him off
+// halfway through the dish. He decides when he has finished, by tapping Done.
+function mpVoiceStart(){
+  if (!mpVoiceSupported()){
+    mpToast('Voice needs Android Chrome. On iPhone, tap a box and use the keyboard mic.', true); return;
+  }
+  if (!mpCanAuthor()){ mpToast('Voice adds and changes dishes — your access is review only.', true); return; }
+  mpVFinal = ''; mpVInterim = ''; mpVCommitted = ''; mpVRestarts = 0; mpVIntent = null;
+  mpVoicePaint();
+  mpVoiceStartEar();
+}
+function mpVoicePaint(){
+  var it = mpVoiceIt();
+  mpSheet(it ? 'Dimmi' : 'Tell me',
+    '<div class="mp-vlangs">' +
+      MP_VOICE_LANGS.map(function(L){
+        return '<button type="button" class="mp-vlang' + (mpVoiceLang === L.code ? ' on' : '') + '" ' +
+          'onclick="mpSetVoiceLang(\'' + L.code + '\')">' + L.label + '</button>';
+      }).join('') +
+    '</div>' +
+    // Not a mode he has to get right. He mixes the two languages either way and
+    // the app copes; this only tips the ear one way or the other.
+    '<div class="mp-fine" style="margin:-4px 0 10px">' + (it
+      ? 'Mischia pure italiano e inglese — capisco lo stesso. Scegli solo quella che parli di più.'
+      : 'Mix Italian and English however you like — it still understands. This just picks which one it leans on.') +
+    '</div>' +
+    mpVoiceStepsHtml() +
+    '<div class="mp-vlive empty" id="mp-vlive">' + (it ? 'Ti ascolto…' : 'Listening…') + '</div>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" id="mp-vdone" onclick="mpVoiceDone(this)">' + (it ? 'Fatto' : 'Done') + '</button>' +
+      '<button class="mp-btn ghost" onclick="mpVoiceTypeInstead(mpVFinal)">' + (it ? 'Scrivilo' : 'Type it') + '</button>' +
+      '<button class="mp-btn ghost" onclick="mpVoiceCancel()">' + (it ? 'Annulla' : 'Cancel') + '</button>' +
+    '</div>' +
+    mpVoiceGuideHtml());
+  var fab = document.getElementById('mp-mic-fab'); if (fab) fab.classList.add('live');
+}
+function mpVoiceStartEar(){
+  var C = mpSpeechCtor(); if (!C) return;
+  try { mpVRec = new C(); } catch(e){ mpVRec = null; return; }
+  mpVRec.lang = mpVoiceLang;
+  mpVRec.continuous = true;
+  mpVRec.interimResults = true;
+  mpVRec.maxAlternatives = 1;
+  // ⚠ THE ONE THAT MADE IT USELESS. Android's recogniser ends itself at every
+  // pause, and each restart hands back a FRESH `ev.results` that starts empty.
+  // Rebuilding mpVFinal from ev.results alone therefore wiped everything he had
+  // already said the moment he stopped to think — he watched his own sentence
+  // disappear. So finished speech is banked in mpVCommitted, which no restart
+  // can touch, and ev.results only ever rebuilds the CURRENT burst on top of it.
+  mpVRec.onresult = function(ev){
+    var fin = '', int = '';
+    for (var i = ev.resultIndex || 0; i < ev.results.length; i++){
+      var r = ev.results[i];
+      if (r.isFinal) fin += r[0].transcript + ' '; else int += r[0].transcript;
+    }
+    if (fin) mpVCommitted += fin;                 // banked — survives every restart
+    mpVFinal = mpVCommitted;
+    mpVInterim = int;
+    mpVoiceShowText();
+  };
+  // Back on after every pause, until he taps Done or Cancel. The restart is
+  // deferred: calling start() synchronously inside onend throws InvalidStateError
+  // on Chrome and the ear never comes back. The counter is a dead-mic backstop —
+  // without it a permanently failing recogniser spins forever.
+  mpVRec.onend = function(){
+    if (!mpVRec) return;                          // he stopped it himself
+    if (++mpVRestarts > 60){ mpVoiceStopEar(); return; }
+    setTimeout(function(){
+      if (!mpVRec) return;
+      try { mpVRec.start(); } catch(e){}
+    }, 250);
+  };
+  mpVRec.onerror = function(ev){
+    var e = ev && ev.error;
+    // Silence is not a failure, and neither is the restart churn — onend brings
+    // it back. Only a real fault is worth interrupting him for.
+    if (e === 'no-speech' || e === 'aborted' || e === 'audio-capture') return;
+    mpVoiceStopEar();
+    mpToast(e === 'not-allowed'
+      ? 'The microphone is blocked — allow it for this site in Chrome, then try again.'
+      : 'Could not hear that — try again, or type it instead.', true);
+  };
+  try { mpVRec.start(); } catch(e){}
+}
+function mpVoiceStopEar(){
+  var r = mpVRec; mpVRec = null;                              // clear FIRST so onend doesn't restart it
+  if (r){ try { r.onend = null; r.stop(); } catch(e){} }
+  var fab = document.getElementById('mp-mic-fab'); if (fab) fab.classList.remove('live');
+}
+function mpVoiceShowText(){
+  var el = document.getElementById('mp-vlive'); if (!el) return;
+  var said = (mpVFinal + mpVInterim).trim();
+  el.className = 'mp-vlive' + (said ? '' : ' empty');
+  el.innerHTML = said
+    ? mpEsc(mpVFinal) + '<span class="interim">' + mpEsc(mpVInterim) + '</span>'
+    : (mpVoiceIt() ? 'Ti ascolto…' : 'Listening…');
+}
+function mpVoiceCancel(){ mpVoiceStopEar(); mpCloseSheet(); }
+
+async function mpVoiceDone(btn){
+  var said = (mpVFinal + ' ' + mpVInterim).replace(/\s+/g,' ').trim();
+  mpVoiceStopEar();
+  if (!said){
+    mpToast(mpVoiceIt() ? 'Non ho sentito niente — riprova.' : 'I didn’t hear anything — try again.', true);
+    return;
+  }
+  return mpVoiceProcess(said, btn);
+}
+
+// Typing is the way through when the microphone is having a bad day — a noisy
+// pass, a bad line, an accent the recogniser refuses. Everything downstream is
+// identical, so he gets the same read-back and the same one-tap save; only the
+// way the words arrived is different. Without this, a mic that mishears him
+// leaves him with nothing, which is how a tool loses someone for good.
+function mpVoiceTypeInstead(seed){
+  var it = mpVoiceIt();
+  mpVoiceStopEar();
+  mpSheet(it ? 'Scrivilo' : 'Type it',
+    '<div class="mp-hint">' + (it
+      ? 'Scrivilo come lo diresti — italiano, inglese, come viene. Non salvo niente finché non controlli.'
+      : 'Write it the way you would say it — Italian, English, however it comes. Nothing is saved until you check it.') + '</div>' +
+    '<textarea class="mp-in" id="mpv-typed" rows="3" maxlength="' + MP_MAX_NOTE + '">' + mpEsc(seed || '') + '</textarea>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpVoiceRunTyped(this)">' + (it ? 'Continua' : 'Continue') + '</button>' +
+      '<button class="mp-btn ghost" onclick="mpVoiceStart()">' + (it ? 'Torna alla voce' : 'Back to talking') + '</button>' +
+    '</div>' +
+    mpVoiceGuideHtml());
+  setTimeout(function(){ var el = document.getElementById('mpv-typed'); if (el) el.focus(); }, 60);
+}
+function mpVoiceRunTyped(btn){
+  var el = document.getElementById('mpv-typed');
+  var said = ((el && el.value) || '').replace(/\s+/g,' ').trim();
+  if (!said){ mpToast(mpVoiceIt() ? 'Scrivi qualcosa prima.' : 'Write something first.', true); return; }
+  return mpVoiceProcess(said, btn);
+}
+
+// One pipeline, whether the words were spoken or typed.
+async function mpVoiceProcess(said, btn){
+  mpVLastSaid = said;                      // so "type it instead" opens on his own words
+  var free = mpLock(btn); if (!free) return;
+  try {
+    var intent = await mpVoiceUnderstand(said);
+    if (!intent || intent.action === 'unknown'){ mpVoiceStuck(said); return; }
+    intent.heard = said;
+    // One clear dish, or he picks. Never a guess.
+    if (intent.action !== 'add'){
+      var cands = mpVoiceFindDishes(intent.dish || intent.name || said);
+      if (!cands.length){ mpVoiceNoDish(said, intent); return; }
+      if (cands.length > 1){ mpVoicePickDish(cands, intent); return; }
+      intent.dish_id = cands[0].id;
+    }
+    mpVIntent = intent;
+    mpVoiceReadBack();
+  } finally { free(); }
+}
+
+// When it cannot work out what he wants, it says so plainly and puts the
+// examples back in front of him — it never half-does something instead.
+function mpVoiceStuck(said){
+  var it = mpVoiceIt();
+  mpSheet(it ? 'Non ho capito' : 'I didn’t get that',
+    '<div class="mp-vheard">' + (it ? 'Ho sentito: ' : 'I heard: ') + '&ldquo;' + mpEsc(said) + '&rdquo;</div>' +
+    '<div class="mp-hint">' + (it
+      ? 'Non ho cambiato niente. Prova a dire il nome del piatto e cosa devo farne.'
+      : 'I have changed nothing. Try naming the dish and what to do with it.') + '</div>' +
+    mpVoiceGuideHtml() +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpVoiceStart()">' + (it ? 'Riprova' : 'Try again') + '</button>' +
+      // His words are already there — fixing two letters beats saying it a third time.
+      '<button class="mp-btn ghost" onclick="mpVoiceTypeInstead(mpVLastSaid)">' + (it ? 'Scrivilo' : 'Type it') + '</button>' +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">' + (it ? 'Chiudi' : 'Close') + '</button>' +
+    '</div>');
+}
+function mpVoiceNoDish(said, intent){
+  var it = mpVoiceIt();
+  mpSheet(it ? 'Quale piatto?' : 'Which dish?',
+    '<div class="mp-vheard">' + (it ? 'Ho sentito: ' : 'I heard: ') + '&ldquo;' + mpEsc(said) + '&rdquo;</div>' +
+    '<div class="mp-hint">' + (it
+      ? 'Non ho trovato nessun piatto con quel nome, quindi non ho toccato niente.'
+      : 'I couldn’t find a dish by that name, so I haven’t touched anything.') + '</div>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn go" onclick="mpVoiceStart()">' + (it ? 'Riprova' : 'Try again') + '</button>' +
+      (intent && intent.name
+        ? '<button class="mp-btn ghost" onclick="mpVoiceAddInstead()">' + (it ? 'Aggiungilo come nuovo' : 'Add it as new') + '</button>' : '') +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">' + (it ? 'Chiudi' : 'Close') + '</button>' +
+    '</div>');
+  mpVIntent = intent;
+}
+function mpVoiceAddInstead(){
+  if (!mpVIntent) return;
+  mpVIntent = Object.assign({}, mpVIntent, { action:'add', name: mpVIntent.dish || mpVIntent.name });
+  mpVoiceReadBack();
+}
+// Two dishes could be the one he meant, so the app asks instead of picking.
+function mpVoicePickDish(cands, intent){
+  var it = mpVoiceIt();
+  mpVIntent = intent;
+  mpVoicePickList = cands;
+  mpSheet(it ? 'Quale dei due?' : 'Which one do you mean?',
+    '<div class="mp-vheard">' + (it ? 'Ho sentito: ' : 'I heard: ') + '&ldquo;' + mpEsc(intent.heard || '') + '&rdquo;</div>' +
+    '<div class="mp-cat-list">' +
+      cands.map(function(d, i){
+        return '<button type="button" class="mp-cat-row" onclick="mpVoiceChoseDish(' + i + ')">' +
+          '<span class="mp-cat-n">' + mpEsc(d.name_it) + '</span>' +
+          '<span class="mp-cat-d quiet">' + mpEsc(d.status + ' · ' + (d.section || '')) + '</span>' +
+        '</button>';
+      }).join('') +
+    '</div>' +
+    '<div class="mp-sheet-actions">' +
+      '<button class="mp-btn ghost" onclick="mpCloseSheet()">' + (it ? 'Annulla' : 'Cancel') + '</button>' +
+    '</div>');
+}
+let mpVoicePickList = [];
+function mpVoiceChoseDish(i){
+  var d = mpVoicePickList[i]; if (!d || !mpVIntent) return;
+  mpVIntent.dish_id = d.id;
+  mpVoiceReadBack();
+}
+
+// ── understanding one spoken instruction ───────────────────────────────────
+// Same shape as mpAiUnderstand above, and the same hard limits: the model reads
+// his words and NOTHING else. It is not asked for a date, and any date it
+// volunteers is dropped on the floor — the app owns every date in this file.
+const MP_VOICE_ACTIONS = ['add','status','attach','detach','edit','delete'];
+async function mpVoiceUnderstand(text){
+  var read = await mpVoiceAiUnderstand(text);
+  if (!read) read = mpVoiceFallback(text);
+  if (!read) return null;
+  // Whatever came back, it is scrubbed against the app's own vocabulary before
+  // it is allowed anywhere near the screen.
+  if (MP_VOICE_ACTIONS.indexOf(read.action) < 0) read.action = 'unknown';
+  read.name    = String(read.name || '').trim().slice(0, MP_MAX_NAME);
+  read.section = MP_SECTIONS.indexOf(read.section) >= 0 ? read.section : null;
+  read.status  = MP_STATUSES.indexOf(read.status)  >= 0 ? read.status  : null;
+  read.menu    = mpMenus.some(function(m){ return m.name === read.menu; }) ? read.menu : null;
+  read.description = String(read.description || '').trim().slice(0, MP_MAX_DESC) || null;
+  read.notes   = String(read.notes || '').trim().slice(0, MP_MAX_NOTE) || null;
+  // SUGGESTED allergens only. They arrive switched off and stay off until he
+  // taps them — see rule 2 at the top of this section.
+  var codes = MP_ALLERGENS.map(function(a){ return a.code; });
+  read.suggest_allergens = (Array.isArray(read.allergens) ? read.allergens : [])
+    .map(function(c){ return String(c || '').trim().toUpperCase(); })
+    .filter(function(c){ return codes.indexOf(c) >= 0; });
+  delete read.allergens;
+  if (read.action === 'add' && !read.name) read.action = 'unknown';
+  return read;
+}
+async function mpVoiceAiUnderstand(text){
+  try {
+    var sys =
+      'A chef in an Italian restaurant in Dubai is talking to his menu-planning app. Turn ONE spoken ' +
+      'instruction into ONE JSON object and reply with the object and nothing else.\n' +
+      '\n' +
+      'HOW HE TALKS — read this before anything else:\n' +
+      '· His English is not strong. Expect broken grammar, missing words, wrong tenses, no punctuation. ' +
+      'Judge what he MEANT, never what the sentence technically says.\n' +
+      '· He mixes Italian and English in one sentence — "piatto nuovo, spaghetti al riccio, is ready for ' +
+      'testing". That is normal, not an error.\n' +
+      '· This is phone dictation, so the words arrive mangled, ESPECIALLY the Italian dish names: ' +
+      '"spaghetti al ritchie the mare" is "Spaghetti al riccio di mare". Read the transcript for SOUND, ' +
+      'not spelling, and match it to the dish list below — the list is right, the transcript is not.\n' +
+      '· He will not use command words. "the branzino is done" and "branzino ok Francesco liked it" both ' +
+      'mean the stage moved. Work out the intent from ordinary talk.\n' +
+      '· If he says a dish name that is close to one on the list, it IS that dish — do not invent a new one.\n' +
+      '· He is a native ITALIAN speaker. When he speaks English it carries a strong Italian accent, and the ' +
+      'recogniser mishears it badly: "approved" arrives as "approvd" / "epruved" / "a proved", "delete" as ' +
+      '"dilit", "ready" as "redi". Decode it phonetically as an Italian would pronounce the English.\n' +
+      '· The transcript below was produced by a recogniser set to ' +
+      (mpVoiceIt() ? 'ITALIAN, so any ENGLISH words he used have been forced into Italian-looking spellings — read them back out loud in your head to recover them.'
+                   : 'ENGLISH, so any ITALIAN words he used (especially dish names) have been forced into English-looking spellings — read them back out loud in your head to recover them.') + '\n' +
+      '\n' +
+      '{"action": one of "add" | "status" | "attach" | "detach" | "edit" | "delete" | "unknown",\n' +
+      ' "dish": the exact name from the "Dishes he already has" list if he is talking about one of those, else null,\n' +
+      ' "name": for "add" only — the new dish name in his own words (keep it in Italian if he said it in Italian),\n' +
+      ' "menu": the exact name from the "Menus" list if he named one, else null,\n' +
+      ' "section": one of the sections listed, if he said which part of the menu it is, else null,\n' +
+      ' "status": one of the stages listed, if he said where it has got to, else null,\n' +
+      ' "description": a short description if he described the dish, else null,\n' +
+      ' "notes": anything else worth keeping, else null,\n' +
+      ' "allergens": codes you think MIGHT apply, from the list, else []}\n' +
+      'What the actions mean: "add" a new dish · "status" it has reached a stage · "attach" put an existing dish ' +
+      'onto a menu · "detach" take it off a menu but keep the dish · "edit" change its words or section · ' +
+      '"delete" get rid of the dish entirely. If you cannot tell, use "unknown" — do not guess.\n' +
+      'NEVER give a date, a deadline, a month or a duration in any field. The app works those out itself.\n' +
+      'The allergens are a SUGGESTION for a human to confirm — never claim they are certain.';
+    var ctx =
+      'Menus:\n' + mpMenus.map(function(m){ return m.name; }).join('\n') +
+      '\n\nSections:\n' + MP_SECTIONS.join(', ') +
+      '\n\nStages:\n' + MP_STATUSES.join(', ') +
+      '\n\nAllergen codes:\n' + MP_ALLERGENS.map(function(a){ return a.code + '=' + a.label; }).join(', ') +
+      '\n\nDishes he already has:\n' + mpDishes.slice(0, 400).map(function(d){ return d.name_it; }).join('\n') +
+      '\n\nHe said:\n' + text;
+    var resp = await fetch(MP_AI_URL, {
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer ' + SUPABASE_KEY,
+        'apikey': SUPABASE_KEY,
+        'x-proxy-secret': (typeof KITCHEN_PROXY_SECRET !== 'undefined' ? KITCHEN_PROXY_SECRET : '')
+      },
+      body: JSON.stringify({
+        action:'chat', model:'claude-sonnet-4-6', max_tokens:600, system:sys,
+        messages:[{ role:'user', content: ctx }]
+      })
+    });
+    if (!resp.ok) return null;
+    var data = await resp.json();
+    var hit = String((data && data.text) || '').match(/\{[\s\S]*\}/);
+    if (!hit) return null;
+    var o = JSON.parse(hit[0]);
+    return (o && typeof o === 'object') ? o : null;
+  } catch(e){ return null; }
+}
+// The proxy will be down sometimes and the mic still has to do something
+// honest. This reads the few phrasings that carry their own meaning in both
+// languages; anything else comes back "unknown", which is a real answer.
+// These run on the SOUND-normalised sentence, not the raw one, so a mangled
+// transcript still trips them ("aprovato", "approvatto", "finito" all land).
+// They are deliberately generous: this only ever proposes, and he reads the
+// read-back card before anything is written.
+// These are matched against the SOUND-normalised sentence, so the patterns must
+// go through the same normaliser — written out longhand they silently never
+// match ("togli" normalises to "toli", "cancella" to "kansela"), which is a
+// bug that looks exactly like "it just didn't understand him".
+// Two words are the same word if they sound the same once normalised. Short
+// words must match exactly (mpSoundsLike refuses under 4 letters) or "on" and
+// "un" become the same instruction.
+function mpTokenLike(a, b){ return a === b || mpSoundsLike(a, b); }
+// Does this sentence contain any of these phrases — allowing for the accent?
+//
+// THE POINT OF THIS: he is Italian, and Chrome's English recogniser does not
+// handle Italian-accented English. "approved" comes back as "approvd",
+// "epruved", "a proved"; "delete" as "dilit". Matching those literally fails,
+// which is what "it doesn't fully recognise my accent" actually was — the DISH
+// names already matched by sound, but the command words did not. Now they do.
+function mpVHasPhrase(sentence, phrases){
+  var toks = String(sentence || '').split(' ').filter(Boolean);
+  if (!toks.length) return false;
+  for (var p = 0; p < phrases.length; p++){
+    var pw = mpVoiceNorm(phrases[p]).split(' ').filter(Boolean);
+    if (!pw.length) continue;
+    for (var i = 0; i + pw.length <= toks.length; i++){
+      var all = true;
+      for (var j = 0; j < pw.length; j++){
+        if (!mpTokenLike(pw[j], toks[i + j])){ all = false; break; }
+      }
+      if (all) return true;
+    }
+  }
+  return false;
+}
+// Kept for anything that still wants a plain regex.
+function mpVRe(words){
+  var parts = words
+    .map(function(w){ return mpVoiceNorm(w).replace(/ /g, '\\s+'); })
+    .filter(function(w){ return !!w; });
+  return new RegExp('(?:^|\\s)(?:' + parts.join('|') + ')(?:\\s|$)');
+}
+const MP_V_DELETE = ['delete','deleted','remove it','get rid','bin it','cancella','cancellare','elimina','buttalo'];
+const MP_V_OFF    = ['off','out','fuori','leva','levare','togli','togliere','toglie','via'];
+const MP_V_ON     = ['on','onto','into','put','add','metti','mettere','mettiamo','aggiungi','aggiungere','va su','vanno'];
+// Deliberately STRICT, unlike the rest. Everything else here acts on a dish we
+// already hold; this one CREATES a row, so a stray verb in a sentence of
+// thinking-out-loud must not become a new dish.
+const MP_V_ADD    = ['new dish','a new dish','add a dish','piatto nuovo','nuovo piatto','aggiungi piatto','aggiungiamo piatto'];
+const MP_V_STATUS_WORDS = {
+  // "done / finito / pronto / ok / va bene" all mean the same thing in this
+  // kitchen — nobody is going to say "set the status to Approved".
+  Approved: ['approved','approvato','approvata','okay','ok','va bene','piaciuto','gli e piaciuto'],
+  Testing:  ['testing','test','tasting','prova','provare','proviamo','assaggio','assaggiare','pronto','pronta','finito','finita','done','ready'],
+  Trying:   ['trying','ci lavoro','lavorando','provando','in corso'],
+  Costing:  ['costing','cost','costo','costare','price','prezzo'],
+  Retired:  ['retired','ritirato','ritirata','fuori menu','levato'],
+  Idea:     ['solo un idea','just an idea','only an idea','un idea']
+};
+const MP_V_STATUS = (function(){
+  // Each stage becomes a tester that matches by sound, so an accented "approved"
+  // still lands on Approved.
+  var out = {};
+  Object.keys(MP_V_STATUS_WORDS).forEach(function(k){
+    out[k] = { test: function(n){ return mpVHasPhrase(n, MP_V_STATUS_WORDS[k]); } };
+  });
+  return out;
+})();
+// The offline read. It is not a phrase book — it looks for a dish it recognises
+// and a word that says what to do with it, in whichever language that word
+// arrived in, and gives up honestly when it finds neither.
+function mpVoiceFallback(text){
+  var s = String(text || ''), n = mpVoiceNorm(s);
+  var menu = mpMatchMenu(s);
+  var out = { action:'unknown', dish:null, name:'', menu:menu ? menu.name : null,
+              section:null, status:null, description:null, notes:null, allergens:[] };
+  var known = mpVoiceFindDishes(s);          // does he name a dish we already hold?
+  var namesADish = known.length > 0;
+
+  for (var k in MP_V_STATUS){ if (MP_V_STATUS[k].test(n)){ out.status = k; break; } }
+
+  // "New dish / piatto nuovo" wins over everything, and it has to: half his new
+  // dishes share a word with one he already has ("new dish, sea urchin
+  // SPAGHETTI" against an existing "SPAGHETTI al riccio"), and without this the
+  // app reads a brand-new dish as an edit to the old one.
+  var saysNew = mpVHasPhrase(n, MP_V_ADD);
+  if (saysNew)                                                out.action = 'add';
+  else if (mpVHasPhrase(n, MP_V_DELETE) && namesADish)        out.action = 'delete';
+  else if (namesADish && menu && mpVHasPhrase(n, MP_V_OFF))   out.action = 'detach';
+  else if (namesADish && menu && mpVHasPhrase(n, MP_V_ON))    out.action = 'attach';
+  else if (namesADish && out.status)                          out.action = 'status';
+  // Either he said "new dish", or he is talking about something we do not hold
+  // while naming a menu — both mean a dish that needs creating.
+  if (out.action === 'add' || (out.action === 'unknown' && !namesADish && menu)){
+    // He is talking about something we do not hold — so it is a new dish. Strip
+    // the lead-in and the trailing "for <menu>" and keep his own words as the
+    // name; he can correct it on the read-back.
+    out.action = 'add';
+    out.name = s.replace(/^[^a-zà-ÿ]*/i, '')
+      .replace(/^(new dish|a new dish|add a dish|piatto nuovo|nuovo piatto|aggiungi(?: il)? piatto|facciamo|voglio fare)\b/i, '')
+      .split(/\bfor\b|\bper\b|\bsul\b|\bsu\b/i)[0]
+      .replace(/^[\s,.:;-]+/, '').replace(/[\s,.:;-]+$/, '')
+      .replace(/\s+/g, ' ').trim().slice(0, MP_MAX_NAME);
+    if (!out.name) out.action = 'unknown';
+  }
+  // Anything that got this far still 'unknown' — a dish named with nothing
+  // decipherable to do with it, or plain thinking-out-loud — stays unknown on
+  // purpose. It ends at "I didn't get that", which changes nothing.
+  if (out.action !== 'unknown' && out.action !== 'add') out.dish = s;   // matched again by mpVoiceFindDishes
+  if (out.action !== 'status') out.status = out.action === 'add' ? out.status : null;
+  return out;
+}
+
+// ── which dish did he mean ─────────────────────────────────────────────────
+// THE HARD PART, and the reason this is not a simple string compare.
+//
+// Two things are true about this kitchen: their English is not strong, and they
+// speak Italian and English in the same sentence ("piatto nuovo, spaghetti al
+// riccio, is ready for testing"). On top of that, phone dictation mangles the
+// word that matters most — the dish name — because it is an Italian noun being
+// guessed at by a recogniser. "Spaghetti al riccio di mare" comes back as
+// "spaghetti al ritchie the mare", "spagetti al riccio dimare", "spaghetti
+// alriccio". A literal match finds none of those.
+//
+// So the matcher listens for how a word SOUNDS, not how it was spelled. It
+// still refuses to pick between two — it just gets far closer to the shortlist.
+
+// Strip a word down to roughly the sounds in it, so the Italian and the
+// mis-heard English collapse onto the same key: accents dropped, doubled
+// letters flattened (riccio → ricio), and the spellings that differ between the
+// two languages folded together (ch/c/q → k, gli → li, gn → n, z → s, ph → f).
+function mpVoiceNorm(s){
+  var t = String(s || '').toLowerCase();
+  // accents off: è/é/ì → e/e/i, so "è approvato" and "e approvato" are one word
+  t = t.normalize ? t.normalize('NFD').replace(/[̀-ͯ]/g, '') : t;
+  return t
+    .replace(/[^a-z ]+/g, ' ')
+    .replace(/ph/g, 'f').replace(/gli/g, 'li').replace(/gn/g, 'n')
+    .replace(/ch/g, 'k').replace(/c/g, 'k').replace(/q/g, 'k')
+    .replace(/z/g, 's').replace(/w/g, 'v').replace(/y/g, 'i').replace(/h/g, '')
+    .replace(/(.)\1+/g, '$1')          // riccio → ricio, spagghetti → spagheti
+    .replace(/\s+/g, ' ').trim();
+}
+// Ordinary edit distance, capped — the strings here are dish names, not essays.
+function mpLev(a, b){
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  var prev = [], cur = [], i, j;
+  for (j = 0; j <= b.length; j++) prev[j] = j;
+  for (i = 1; i <= a.length; i++){
+    cur[0] = i;
+    for (j = 1; j <= b.length; j++){
+      cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a.charAt(i-1) === b.charAt(j-1) ? 0 : 1));
+    }
+    for (j = 0; j <= b.length; j++) prev[j] = cur[j];
+  }
+  return prev[b.length];
+}
+// Close enough to be the same word once you allow for a bad transcription:
+// about one slip in four characters, and short words must match nearly exactly
+// (otherwise "mare" matches "carne" and the wrong dish gets changed).
+// The consonant skeleton. An Italian accent moves the VOWELS almost entirely —
+// "delete" arrives as "dilit", "approved" as "epruved" — while the consonants
+// survive: dlt = dlt, prvd = prvd. Edit distance alone scores those as far
+// apart because it weighs a vowel like any other letter, which is exactly why
+// English commands were failing for him while Italian ones worked.
+function mpSkeleton(s){ return String(s || '').replace(/[aeiou]/g, ''); }
+function mpSoundsLike(a, b){
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // Short words must match exactly, or "on" and "un" become one instruction.
+  if (a.length < 4 || b.length < 4) return false;
+  var longest = Math.max(a.length, b.length);
+  var sa = mpSkeleton(a), sb = mpSkeleton(b);
+  // Short words (4–5 letters) are where the wrong-dish accidents live: one
+  // letter apart is most of the word. "carne" and "carte" are one edit apart
+  // and are NOT the same thing, so a short word must also agree on its
+  // consonants. ("mare"/"more" do agree, and genuinely do sound alike.)
+  // …and on the last letter, because in Italian the final vowel is where the
+  // meaning lives: "pesce" (fish) against "pesca" (peach) is one edit and the
+  // same consonants, and putting a peach in the fish section is the kind of
+  // wrong this whole matcher exists to avoid.
+  if (longest <= 5) return mpLev(a, b) <= 1 && sa === sb && a.slice(-1) === b.slice(-1);
+  if (mpLev(a, b) <= Math.round(longest / 3)) return true;
+  // Longer words get a second chance on the skeleton alone — this is what
+  // rescues "delete"/"dilit" and "approved"/"epruved". Three consonants
+  // minimum, so it can never fire on something as thin as "mr".
+  return sa.length >= 3 && sa === sb;
+}
+// Words worth matching on — the noise words of BOTH languages dropped, so
+// "di/de/the/al/con/with" never carry a match on their own.
+const MP_V_NOISE = /^(the|and|for|with|new|dish|menu|our|its|di|de|da|del|della|al|alla|allo|ai|con|in|su|un|una|uno|il|lo|la|le|gli|piatto|nuovo|nuova|questo|questa)$/;
+function mpVoiceTokens(s){
+  return mpVoiceNorm(s).split(' ').filter(function(w){ return w.length > 2 && !MP_V_NOISE.test(w); });
+}
+function mpVoiceFindDishes(frag){
+  var live = mpDishes.filter(function(d){ return d && d.name_it; });
+  var raw = String(frag || '').toLowerCase().trim();
+  if (!raw) return [];
+
+  // 1. said it exactly
+  var exact = live.filter(function(d){ return d.name_it.toLowerCase() === raw; });
+  if (exact.length) return exact;
+
+  // 2. the whole name sits inside the sentence, allowing for the transcription
+  //    running words together ("alriccio") — compare on sound, spaces removed
+  var qFlat = mpVoiceNorm(raw).replace(/ /g,'');
+  var inside = live.filter(function(d){ return qFlat.indexOf(mpVoiceNorm(d.name_it).replace(/ /g,'')) >= 0; });
+  if (inside.length === 1) return inside;
+  if (inside.length > 1) return inside.sort(function(a,b){ return b.name_it.length - a.name_it.length; }).slice(0, 6);
+
+  // 3. word by word, by sound. Each dish scores the number of its own words it
+  //    can hear in what he said, weighted so a long distinctive word ("riccio",
+  //    "finocchio") counts for more than a short common one.
+  var qt = mpVoiceTokens(raw);
+  if (!qt.length) return [];
+  var scored = live.map(function(d){
+    var dt = mpVoiceTokens(d.name_it), score = 0;
+    dt.forEach(function(w){
+      var hit = qt.some(function(q){ return mpSoundsLike(w, q); });
+      if (hit) score += Math.min(w.length, 9);
+    });
+    return { d:d, score:score, need:dt.length };
+  }).filter(function(x){
+    // at least one solid word heard — a single 3-letter coincidence is not a match
+    return x.score >= 5;
+  }).sort(function(a,b){ return b.score - a.score; });
+  if (!scored.length) return [];
+
+  // Outright winner only. Anything within a whisker of the top is offered as a
+  // choice instead — changing the wrong dish is worse than one extra tap.
+  var top = scored[0].score;
+  var close = scored.filter(function(x){ return x.score >= top - 2; });
+  return close.slice(0, 6).map(function(x){ return x.d; });
+}
+
+// ══ THE READ-BACK — the mic never writes without this screen ═══════════════
+// Same promise the typed box makes: this is what I understood, change what is
+// wrong, nothing is saved until you tap the button.
+function mpVoiceDishOf(intent){
+  return mpDishes.find(function(x){ return x.id === (intent && intent.dish_id); }) || null;
+}
+function mpVoiceReadBack(){
+  var v = mpVIntent; if (!v) return;
+  var it = mpVoiceIt(), d = mpVoiceDishOf(v);
+  var heard = '<div class="mp-vheard">' + (it ? 'Ho sentito: ' : 'I heard: ') +
+              '&ldquo;' + mpEsc(v.heard || '') + '&rdquo;</div>';
+  var body, title, go;
+
+  if (v.action === 'add'){
+    title = it ? 'Aggiungo questo?' : 'Add this?';
+    go    = it ? 'Sì, aggiungilo' : 'Yes, add it';
+    body = heard +
+      '<label class="mp-lab">' + (it ? 'Piatto' : 'Dish') + '</label>' +
+      '<input class="mp-in" id="mpv-name" maxlength="' + MP_MAX_NAME + '" value="' + mpEsc(v.name) + '"/>' +
+      '<label class="mp-lab">' + (it ? 'Sezione' : 'Section') + '</label>' +
+      '<select class="mp-in" id="mpv-section">' +
+        MP_SECTIONS.map(function(s){
+          return '<option value="' + mpEsc(s) + '"' + (s === (v.section || 'Other') ? ' selected' : '') + '>' + mpEsc(s) + '</option>';
+        }).join('') +
+      '</select>' +
+      '<label class="mp-lab">' + (it ? 'Stadio' : 'Stage') + '</label>' +
+      '<select class="mp-in" id="mpv-status">' +
+        MP_STATUSES.filter(function(s){ return mpCanSetStatus(s, null) || s === 'Idea'; }).map(function(s){
+          return '<option value="' + mpEsc(s) + '"' + (s === (v.status || 'Idea') ? ' selected' : '') + '>' + mpEsc(s) + '</option>';
+        }).join('') +
+      '</select>' +
+      (v.description
+        ? '<label class="mp-lab">' + (it ? 'Descrizione' : 'Description') + '</label>' +
+          '<textarea class="mp-in" id="mpv-desc" rows="2" maxlength="' + MP_MAX_DESC + '">' + mpEsc(v.description) + '</textarea>'
+        : '') +
+      '<label class="mp-lab">' + (it ? 'Su quali menù' : 'On which menus') + '</label>' +
+      '<div class="mp-pills" id="mpv-menus">' +
+        mpMenus.map(function(m){
+          return '<button type="button" class="mp-pill' + (m.name === v.menu ? ' on' : '') + '" data-v="' + mpEsc(m.name) + '" ' +
+            'onclick="this.classList.toggle(\'on\')">' + mpEsc(m.name) + '</button>';
+        }).join('') +
+      '</div>' +
+      // Allergens: SUGGESTED, never ticked. Defect D3 — the app used to tick
+      // these itself and under-state them, while telling him it had "guessed
+      // from the description". A wrong allergen reaches a guest.
+      '<label class="mp-lab">' + (it ? 'Allergeni' : 'Allergens') + '</label>' +
+      '<div class="mp-hint">' + (it
+        ? 'Non ne spunto nessuno io. Tocca quelli veri.'
+        : 'I don’t tick any of these for you. Tap the ones that are real.') + '</div>' +
+      '<div class="mp-pills" id="mpv-allerg">' +
+        MP_ALLERGENS.map(function(a){
+          var sug = v.suggest_allergens.indexOf(a.code) >= 0;
+          return '<button type="button" class="mp-pill" data-v="' + a.code + '" ' +
+            'onclick="this.classList.toggle(\'on\')">' + mpEsc(a.label) +
+            (sug ? ' <span class="mp-tag">?</span>' : '') + '</button>';
+        }).join('') +
+      '</div>';
+
+  } else if (v.action === 'status'){
+    if (!v.status){ mpVoiceStuck(v.heard || ''); return; }
+    // Never offer a button that is going to refuse him. Approving is Francesco's
+    // alone, and Costing only opens once a dish is Approved — say that here,
+    // rather than letting him tap Yes and get a red toast.
+    if (!mpCanSetStatus(v.status, d)){
+      mpSheet(it ? 'Questo non posso farlo' : 'That one isn’t yours to set',
+        heard + '<div class="mp-vdo"><div class="mp-vdo-n">' + mpEsc(d ? d.name_it : '') + '</div>' +
+          '<div class="mp-vdo-s">' + (v.status === 'Approved'
+            ? (it ? 'Solo Francesco può approvare un piatto. Il piatto resta ' + mpEsc(d ? d.status : '') + '.'
+                  : 'Only Francesco can approve a dish. This one stays ' + mpEsc(d ? d.status : '') + '.')
+            : (it ? 'Un piatto va in Costing dopo essere stato approvato — questo è ancora ' + mpEsc(d ? d.status : '') + '.'
+                  : 'A dish goes to Costing once it is Approved — this one is still ' + mpEsc(d ? d.status : '') + '.')) +
+          '</div></div>' +
+        '<div class="mp-hint">' + (it ? 'Non ho cambiato niente.' : 'I have changed nothing.') + '</div>' +
+        '<div class="mp-sheet-actions">' +
+          '<button class="mp-btn go" onclick="mpVoiceStart()">' + (it ? 'Dimmi altro' : 'Say something else') + '</button>' +
+          '<button class="mp-btn ghost" onclick="mpCloseSheet()">' + (it ? 'Chiudi' : 'Close') + '</button>' +
+        '</div>');
+      return;
+    }
+    title = it ? 'Cambio lo stadio?' : 'Change the stage?';
+    go    = it ? 'Sì, cambialo' : 'Yes, change it';
+    body = heard + '<div class="mp-vdo"><div class="mp-vdo-k">' + (it ? 'Stadio' : 'Stage') + '</div>' +
+      '<div class="mp-vdo-n">' + mpEsc(d ? d.name_it : '') + '</div>' +
+      '<div class="mp-vdo-s">' + mpEsc((d ? d.status : '') + ' → ' + v.status) + ' &middot; ' +
+        mpEsc(MP_STATUS_NOTE[v.status] || '') + '</div></div>';
+
+  } else if (v.action === 'attach' || v.action === 'detach'){
+    if (!v.menu){ mpVoiceStuck(v.heard || ''); return; }
+    var on = v.action === 'attach';
+    title = it ? (on ? 'Lo metto sul menù?' : 'Lo tolgo dal menù?') : (on ? 'Put it on the menu?' : 'Take it off the menu?');
+    go    = it ? (on ? 'Sì, mettilo' : 'Sì, toglilo') : (on ? 'Yes, put it on' : 'Yes, take it off');
+    body = heard + '<div class="mp-vdo"><div class="mp-vdo-k">' + (on ? (it ? 'Aggiungi al menù' : 'On to the menu') : (it ? 'Togli dal menù' : 'Off the menu')) + '</div>' +
+      '<div class="mp-vdo-n">' + mpEsc(d ? d.name_it : '') + '</div>' +
+      '<div class="mp-vdo-s">' + mpEsc((on ? (it ? 'Va su: ' : 'Goes on: ') : (it ? 'Esce da: ' : 'Comes off: ')) + v.menu) + '<br>' +
+        (it ? 'Il piatto resta nella lista.' : 'The dish itself stays in the list.') + '</div></div>';
+
+  } else if (v.action === 'edit'){
+    title = it ? 'Cambio questo?' : 'Change this?';
+    go    = it ? 'Sì, salva' : 'Yes, save it';
+    body = heard +
+      '<div class="mp-vdo"><div class="mp-vdo-n">' + mpEsc(d ? d.name_it : '') + '</div></div>' +
+      '<label class="mp-lab">' + (it ? 'Sezione' : 'Section') + '</label>' +
+      '<select class="mp-in" id="mpv-section">' +
+        MP_SECTIONS.map(function(s){
+          var cur = v.section || (d && d.section) || 'Other';
+          return '<option value="' + mpEsc(s) + '"' + (s === cur ? ' selected' : '') + '>' + mpEsc(s) + '</option>';
+        }).join('') +
+      '</select>' +
+      '<label class="mp-lab">' + (it ? 'Descrizione' : 'Description') + '</label>' +
+      '<textarea class="mp-in" id="mpv-desc" rows="3" maxlength="' + MP_MAX_DESC + '">' +
+        mpEsc(v.description || (d && d.description_en) || '') + '</textarea>' +
+      (v.notes ? '<label class="mp-lab">' + (it ? 'Note' : 'Notes') + '</label>' +
+        '<textarea class="mp-in" id="mpv-notes" rows="2" maxlength="' + MP_MAX_NOTE + '">' + mpEsc(v.notes) + '</textarea>' : '');
+
+  } else if (v.action === 'delete'){
+    // The one that can hurt. Red, the name spelled out, the consequence named,
+    // the safe way out first — and an Undo afterwards, because "riccio" and
+    // "riso" are one misheard syllable apart.
+    var nc = d ? mpCommentsFor('dish', d.id).length : 0;
+    title = it ? 'Lo cancello?' : 'Delete it?';
+    go    = it ? 'Sì, cancella' : 'Yes, delete it';
+    body = heard + '<div class="mp-vdo danger"><div class="mp-vdo-k">' + (it ? 'Cancella' : 'Delete') + '</div>' +
+      '<div class="mp-vdo-n">' + mpEsc(d ? d.name_it : '') + '</div>' +
+      '<div class="mp-vdo-s">' + (it
+        ? 'Sparisce per tutti' + (nc ? ', con ' + nc + ' commento' + (nc === 1 ? '' : 'i') : '') +
+          '. Avrai qualche secondo per annullare.'
+        : 'It disappears for everyone' + (nc ? ', and takes ' + nc + ' comment' + (nc === 1 ? '' : 's') + ' with it' : '') +
+          '. You get a few seconds to undo.') + '</div></div>';
+  } else { mpVoiceStuck(v.heard || ''); return; }
+
+  mpSheet(title, body +
+    '<div class="mp-sheet-actions">' +
+      (v.action === 'delete'
+        ? '<button class="mp-btn ghost" onclick="mpVoiceCancel()">' + (it ? 'No, lascialo' : 'No, keep it') + '</button>' +
+          '<button class="mp-btn go" onclick="mpVoiceCommit(this)">' + mpEsc(go) + '</button>'
+        : '<button class="mp-btn go" onclick="mpVoiceCommit(this)">' + mpEsc(go) + '</button>' +
+          '<button class="mp-btn ghost" onclick="mpVoiceStart()">' + (it ? 'Ridillo' : 'Say it again') + '</button>') +
+    '</div>');
+}
+
+// ── the write. Everything above this line changes nothing. ─────────────────
+async function mpVoiceCommit(btn){
+  var v = mpVIntent; if (!v) return;
+  var free = mpLock(btn); if (!free) return;
+  try {
+    var it = mpVoiceIt(), d = mpVoiceDishOf(v), res;
+
+    if (v.action === 'add'){
+      var name = (document.getElementById('mpv-name').value || '').trim();
+      if (!name){ mpToast(it ? 'Serve un nome.' : 'It needs a name.', true); return; }
+      var wantStatus = (document.getElementById('mpv-status') || {}).value || 'Idea';
+      if (!mpCanSetStatus(wantStatus, null)) wantStatus = 'Idea';
+      var pick = function(wrapId){
+        var w = document.getElementById(wrapId);
+        return w ? [].slice.call(w.querySelectorAll('.mp-pill.on')).map(function(b){ return b.getAttribute('data-v'); }) : [];
+      };
+      var row = {
+        name_it: name,
+        section: (document.getElementById('mpv-section') || {}).value || 'Other',
+        description_en: ((document.getElementById('mpv-desc') || {}).value || '').trim() || null,
+        for_menus: pick('mpv-menus'),
+        allergens: pick('mpv-allerg'),
+        notes: v.notes || null,
+        status: wantStatus,
+        created_by: mpMe.name, updated_by: mpMe.name
+      };
+      if (wantStatus === 'Approved') row.approved_date = mpToday();
+      res = await sb.from('menu_plan_dishes').insert(row).select().single();
+      if (mpErr(res, 'the dish')) return;
+      mpVoiceFinish(name + (it ? ' aggiunto' : ' added'));
+
+    } else if (v.action === 'status'){
+      if (!d) return;
+      // Straight through the existing gate — it owns the approver rule and the
+      // "taking it back out of Approved" confirmation.
+      mpVoiceStopEar(); mpCloseSheet(); mpVIntent = null;
+      await mpSetDishStatus(d.id, v.status);
+      return;
+
+    } else if (v.action === 'attach' || v.action === 'detach'){
+      if (!d) return;
+      var cur = (d.for_menus || []).slice();
+      var next = v.action === 'attach'
+        ? (cur.indexOf(v.menu) >= 0 ? cur : cur.concat([v.menu]))
+        : cur.filter(function(x){ return x !== v.menu; });
+      res = await sb.from('menu_plan_dishes')
+        .update({ for_menus: next, updated_at:new Date().toISOString(), updated_by:mpMe.name }).eq('id', d.id);
+      if (mpErr(res, 'the dish')) return;
+      mpVoiceFinish(d.name_it + ' → ' + (v.action === 'attach' ? v.menu : (it ? 'tolto da ' : 'off ') + v.menu));
+
+    } else if (v.action === 'edit'){
+      if (!d) return;
+      var patch = {
+        section: (document.getElementById('mpv-section') || {}).value || d.section,
+        description_en: ((document.getElementById('mpv-desc') || {}).value || '').trim() || null,
+        updated_at: new Date().toISOString(), updated_by: mpMe.name
+      };
+      var nEl = document.getElementById('mpv-notes');
+      if (nEl) patch.notes = (nEl.value || '').trim() || null;
+      res = await sb.from('menu_plan_dishes').update(patch).eq('id', d.id);
+      if (mpErr(res, 'the dish')) return;
+      mpVoiceFinish(it ? 'Salvato' : 'Saved');
+
+    } else if (v.action === 'delete'){
+      if (!d) return;
+      // Everything needed to put it back is kept in memory FIRST — the row and
+      // its comments — because after the delete there is nothing to read.
+      var comments = mpCommentsFor('dish', d.id).slice();
+      var keep = Object.assign({}, d);
+      res = await sb.from('menu_plan_dishes').delete().eq('id', d.id);
+      if (mpErr(res, 'the delete')) return;
+      if (comments.length) await sb.from('menu_plan_comments').delete().eq('target_type','dish').eq('target_id', d.id);
+      mpVUndo = { dish:keep, comments:comments };
+      mpVoiceFinish('');
+      mpVoiceShowUndo((it ? 'Cancellato: ' : 'Deleted: ') + keep.name_it);
+    }
+  } finally { free(); }
+}
+async function mpVoiceFinish(msg){
+  mpVoiceStopEar();
+  mpCloseSheet();
+  mpVIntent = null;
+  await mpLoadAll();
+  mpRender();
+  if (msg) mpToast(msg);
+}
+
+// ── undo, for the one thing that cannot be said again ──────────────────────
+function mpVoiceShowUndo(text){
+  var bar = document.getElementById('mp-undo'), txt = document.getElementById('mp-undo-txt');
+  if (!bar || !txt) return;
+  txt.textContent = text;
+  bar.classList.add('show');
+  if (mpVUndoTimer) clearTimeout(mpVUndoTimer);
+  mpVUndoTimer = setTimeout(function(){ mpVoiceHideUndo(); mpVUndo = null; }, 9000);
+}
+function mpVoiceHideUndo(){
+  var bar = document.getElementById('mp-undo');
+  if (bar) bar.classList.remove('show');
+  if (mpVUndoTimer){ clearTimeout(mpVUndoTimer); mpVUndoTimer = null; }
+}
+async function mpVoiceUndo(){
+  var u = mpVUndo; mpVUndo = null;
+  mpVoiceHideUndo();
+  if (!u) return;
+  // Put it back exactly as it was, id included, so anything pointing at it — a
+  // tasting item, a photo row — still finds it.
+  var res = await sb.from('menu_plan_dishes').insert(u.dish);
+  if (mpErr(res, 'putting it back')) return;
+  if (u.comments.length){
+    await sb.from('menu_plan_comments').insert(u.comments.map(function(c){
+      return { id:c.id, target_type:c.target_type, target_id:c.target_id,
+               author:c.author, body:c.body, created_at:c.created_at };
+    }));
+  }
+  await mpLoadAll(); mpRender();
+  mpToast((mpVoiceIt() ? 'Rimesso: ' : 'Put back: ') + u.dish.name_it);
+}
+
