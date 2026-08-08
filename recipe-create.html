@@ -274,9 +274,12 @@ button.rm:hover{color:var(--vino-light)}
    drag on a row that is three lines tall on a phone has nothing honest to grab. */
 td.mv{padding-top:10px;text-align:center}
 .mvb{display:flex;flex-direction:column;gap:1px;align-items:center}
-button.mvu{background:none;border:none;color:var(--sabbia-dark);cursor:pointer;
-  font-size:10px;line-height:1;padding:3px 5px;border-radius:4px}
-button.mvu:hover:not(:disabled){color:var(--vino);background:rgba(43,1,4,.06)}
+/* 13px in the wine, not 10px in the sand: at 10px in --sabbia-dark the pair read as
+   two specks of dust on a screenshot and a chef would never find them. They are the
+   answer to a question somebody actually asked, so they have to be visible. */
+button.mvu{background:none;border:none;color:var(--vino-light);cursor:pointer;
+  font-size:13px;line-height:1;padding:2px 4px;border-radius:4px}
+button.mvu:hover:not(:disabled){color:var(--vino);background:rgba(43,1,4,.08)}
 /* Greyed and unclickable at the ends of the list, never hidden — a control that
    disappears reads as a bug, and the title says which end it has reached. */
 button.mvu:disabled{opacity:.22;cursor:default}
@@ -6274,12 +6277,18 @@ function render(){
       /* Qty must hold a kilo quantity written out — 0.0035 is six characters and
          a clipped number is worse than no number. Widened from 66px, which fit "0.03"
          and silently cut everything smaller. checkFit() below now proves it. */
-      '<colgroup><col style="width:30px"><col style="width:32%"><col><col class="cq"><col style="width:56px">' +
+      /* "You wrote" was 32%. The arrows took a 22px column, and on a 1280 screen every
+         pixel of it would have come out of the ingredient column — the one the file has
+         twice been fixed for cutting. 30% hands those 22px back, so select.prod measures
+         266px with the arrows, which is exactly what it measured without them. */
+      '<colgroup><col style="width:30px"><col style="width:30%"><col><col class="cq"><col style="width:56px">' +
       /* Trim holds the tick AND, when it is on, the two small boxes — so nothing has
          to open under the row and the sheet never jumps. 46px fit the tick alone. */
-      /* Trim, Cost… then the two order arrows in 26px of their own, then the ×.
-         Stacked arrows, so the pair is one narrow column and not two. */
-        '<col style="width:82px"><col style="width:132px"><col style="width:26px"><col style="width:32px"></colgroup>' +
+      /* Trim, Cost… then the two order arrows in 22px of their own, then the ×.
+         Stacked arrows, so the pair is one narrow column and not two — and 22, not 26,
+         because 22 is what the 2% given back above is worth at 1280 and the ingredient
+         dropdown has to come out of this exactly even. */
+        '<col style="width:82px"><col style="width:132px"><col style="width:22px"><col style="width:32px"></colgroup>' +
       '<thead><tr>' +
         /* The unit column had no heading, so a lone "g" beside a number read as part of
            the number. "How do I know if that 1 is a kilo or a gram" is the question it
@@ -9441,7 +9450,24 @@ $('tobook').addEventListener('click', function(){
   var p = prompt('The book check changes wording across every recipe.\nEnter the PIN to open it.');
   if (p === null) return;                          /* cancelled — say nothing */
   if (p.trim() !== '2468'){ flash('Wrong PIN — nothing opened.', true); return; }
-  location.href = 'writing-review.html';
+
+  /* A NEW TAB when this screen is running inside the Recipes module, which it
+     nearly always is. Two reasons, both practical:
+       · the module holds this page in an iframe, so the address bar shows the
+         app and never the page — opening in the frame would leave him on a
+         screen whose link he cannot see, copy or bookmark. He asked for that
+         link; this is the only way he ever gets to hold it.
+       · the book screen's own "← Kitchen" would otherwise load the whole app
+         INSIDE the frame — the shell nested in itself.
+     Standalone (no embed), replacing the page is right and Back still works. */
+  var url = 'writing-review.html';
+  if (Q.get('embed') === '1' || window.top !== window.self){
+    var w = window.open(url, '_blank');
+    /* a blocked pop-up must not look like a dead button */
+    if (!w) flash('Your browser blocked the new tab. Allow pop-ups for this site, or open writing-review.html directly.', true);
+  } else {
+    location.href = url;
+  }
 });
 $('tolist').addEventListener('click', function(){
   if (S.step === 'list'){ S.step = S.back || 'type'; render(); return; }
