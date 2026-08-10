@@ -22,19 +22,25 @@ let mlCatFilter = '';
 let mlHiddenDays = [];       // array of weekday ints hidden on this device
 
 // ── week math: Monday of the current service week (06:00 Dubai boundary) ──
-function mlComputeWeekStart(){
+// Takes the offset as an argument rather than reading mlWeekOffset, so a caller
+// that needs a week OTHER than the one on screen — the orphan guard needs this
+// week's Monday while the chef may be looking at week +3 — gets it without
+// assigning to the global and putting it back, which would leave the wrong week
+// loaded if anything in between threw.
+function mlWeekStartFor(offset){
   // TODAY is the app's service date 'YYYY-MM-DD' (already 06:00-boundary adjusted).
   const d = new Date(TODAY + 'T00:00:00');
   let dow = d.getDay();              // 0=Sun..6=Sat
   // Map to Monday-start. If Sunday(0), treat as the upcoming Monday (venue closed Sun).
   let diff = (dow === 0) ? 1 : (1 - dow);
   const mon = new Date(d);
-  mon.setDate(d.getDate() + diff + (mlWeekOffset * 7));   // shift by the chosen week offset
+  mon.setDate(d.getDate() + diff + (Number(offset||0) * 7));
   // format from LOCAL parts — .toISOString() would convert to UTC and, east of GMT
   // (Dubai UTC+4), roll the date back a day, shifting every weekday label by one.
   const pad = n => String(n).padStart(2,'0');
   return mon.getFullYear() + '-' + pad(mon.getMonth()+1) + '-' + pad(mon.getDate());
 }
+function mlComputeWeekStart(){ return mlWeekStartFor(mlWeekOffset); }
 function mlWeekdayToday(){
   if(mlWeekOffset !== 0) return null;  // "today" only exists when viewing the current week
   const d = new Date(TODAY + 'T00:00:00');
@@ -630,7 +636,7 @@ function mlRenderRows(days){
       const fl = mlArticleFlag(it);
       const flag = fl ? `<span class="ml-flag ${fl.kind}" title="${mlEsc(fl.why)}">${mlEsc(fl.label)}</span>` : '';
       html += `<div class="ml-row ml-row-tap" onclick="mlOpenEditor(${it.id})">
-        <div class="ml-cell-name"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit">${it.unit||''}</div></div>
+        <div class="ml-cell-name"><div class="ml-name">${it.name}${flag}</div><div class="ml-unit">${mlUnitFor(it)}</div></div>
         ${days.map(wd=>{
           const k = it.id+'|'+wd;
           const v = mlQty[k]; const has = v!=null;
@@ -753,6 +759,36 @@ async function mlIdentify(){
   return mlWho;
 }
 
+// Every quantity still standing against this line from `fromWeek` onwards.
+// Returns null — never an empty array — when the question could not be
+// answered, so a caller cannot read a failure as an all-clear.
+//
+// `gte` rather than the two named weeks: the week switcher goes six weeks out
+// (mlChangeWeek clamps 0..6), so "this week and next" would still leave five
+// weeks a chef can type into and this cannot see. Asking for everything from
+// today's Monday forward costs the same one query and cannot be outgrown.
+// Past weeks are deliberately NOT included — they are history, they have
+// already been ordered, and keeping them is the reason a line is switched off
+// rather than deleted.
+async function mlQuantitiesFrom(itemId, fromWeek){
+  var res = await sb.from('order_quantities')
+    .select('week_start,weekday,qty')
+    .eq('item_id', itemId)
+    .gte('week_start', fromWeek);
+  if(!res || res.error) return null;
+  return (res.data || []).filter(function(r){ return r.qty != null && Number(r.qty) !== 0; });
+}
+
+// 'this week' / 'next week' / the date itself, so the refusal names a week the
+// chef can navigate to rather than a bare Monday they have to work out.
+function mlWeekName(weekStart, thisWeek){
+  if(weekStart === thisWeek) return 'this week';
+  var a = new Date(thisWeek + 'T00:00:00'), b = new Date(weekStart + 'T00:00:00');
+  var n = Math.round((b - a) / 604800000);          // 7 * 24 * 60 * 60 * 1000
+  if(n === 1) return 'next week';
+  return (n > 1 ? '+' + n + ' weeks' : 'week') + ' (' + weekStart + ')';
+}
+
 async function mlRemoveItem(itemId){
   var it = mlItems.find(function(x){ return x.id === itemId; });
   if(!it) return;
@@ -773,13 +809,43 @@ async function mlRemoveItem(itemId){
   // and false of the order. So a line with a quantity on it is now REFUSED,
   // and the person is pointed at the two things that actually work: clear the
   // quantities first, or repoint the line and keep its history.
-  var ordered = [1,2,3,4,5,6].filter(function(wd){ return mlQty[itemId+'|'+wd] != null; }).length;
-  if(ordered){
-    var days = [1,2,3,4,5,6].filter(function(wd){ return mlQty[itemId+'|'+wd] != null; })
-                            .map(function(wd){ return ML_DAYS[wd-1] + ' ' + mlQty[itemId+'|'+wd]; });
+  //
+  // Checked against the DATABASE, not against mlQty. mlQty only ever holds the
+  // week on screen (loadMarketList filters .eq('week_start', mlWeekStart)), so
+  // the in-memory check could only ever see one week of the seven the chef can
+  // order into. Standing on this week and taking a line off would have orphaned
+  // next week's quantities in exactly the way this guard exists to prevent —
+  // the same failure as the heirloom tomatoes, one week displaced, and just as
+  // invisible.
+  var fromWeek = mlWeekStartFor(0);          // this week's Monday, whatever is on screen
+  var pending = await mlQuantitiesFrom(itemId, fromWeek);
+
+  // A guard that cannot see is not a guard. supabase-js reports failures on the
+  // result rather than throwing, so a dropped connection would otherwise read
+  // as "no quantities found" and wave the removal through — the one outcome
+  // this must never produce. No answer means refuse.
+  if(pending === null){
+    alert('"' + it.name + '" was not taken off the list.\n\n' +
+      'Its quantities could not be checked just now — the connection did not answer. ' +
+      'Taking a line off without that check is how quantities get stranded where nobody ' +
+      'can see them, so nothing has been changed.\n\nTry again in a moment.');
+    return;
+  }
+
+  if(pending.length){
+    var byWeek = {};
+    pending.forEach(function(r){ (byWeek[r.week_start] = byWeek[r.week_start] || []).push(r); });
+    var weeks = Object.keys(byWeek).sort();
+    var lines = weeks.map(function(ws){
+      var days = byWeek[ws].slice()
+        .sort(function(a,b){ return a.weekday - b.weekday; })
+        .map(function(r){ return ML_DAYS[r.weekday-1] + ' ' + r.qty; });
+      return '  ' + mlWeekName(ws, fromWeek) + ':  ' + days.join(',  ');
+    });
     alert('"' + it.name + '" cannot be taken off the list yet.\n\n' +
-      'It still has a quantity on ' + ordered + ' day' + (ordered===1?'':'s') + ' of this week:\n  ' +
-      days.join('\n  ') +
+      'It still has ' + pending.length + ' quantit' + (pending.length===1?'y':'ies') +
+      ' on it, across ' + weeks.length + ' week' + (weeks.length===1?'':'s') + ':\n' +
+      lines.join('\n') +
       '\n\nSwitching it off now would hide the line while those quantities stayed in the ' +
       'database — they would never be ordered and nobody would see them. Three kilos of ' +
       'heirloom tomatoes were lost that way on 7 August.\n\n' +
@@ -788,8 +854,9 @@ async function mlRemoveItem(itemId){
     return;
   }
   if(!confirm('Take "' + it.name + '" off the market list?' +
-              '\n\nIt has no quantities this week. Nothing is deleted — everything ever ordered ' +
-              'against it in past weeks is kept. Ask Francesco to put it back.')) return;
+              '\n\nChecked: it has no quantities on this week or any week ahead. Nothing is ' +
+              'deleted — everything ever ordered against it in past weeks is kept. ' +
+              'Ask Francesco to put it back.')) return;
 
   var res = await sb.from('order_items').update({ active:false }).eq('id', itemId);
   if(res && res.error){
@@ -848,7 +915,7 @@ function mlOpenEditor(itemId){
       <div class="ml-ed-head">
         <div class="ml-ed-cat">${it.category}</div>
         <div class="ml-ed-name">${it.name}</div>
-        ${it.unit?`<div class="ml-ed-unit">${it.unit}</div>`:''}
+        ${mlUnitFor(it)?`<div class="ml-ed-unit">${mlUnitFor(it)}</div>`:''}
         ${(()=>{ const fl = mlArticleFlag(it); if(!fl) return '';
           // Spelled out here, not just as a chip: the grid has room for a
           // label, this is where somebody can actually act on it.
@@ -935,6 +1002,23 @@ function mlOnOnly(v){ mlOrderedOnly=v; mlRenderRows(mlVisibleDays()); mlRenderSu
 function mlPickDay(wd){ mlActiveDay=Number(wd); renderMarketList(); }
 
 // ── consolidated order for a given weekday: [{category, items:[{name,unit,qty}]}] ──
+// The unit to SHOW on a line. FMC's own order unit wherever we have one.
+//
+// `unit` is free text a chef typed when the line was created — 'kilogram',
+// '2kg', '12x 1l'. `fmc_unit` is the packing unit on FMC's Purchase grid, read
+// off the grid and confirmed against FMC's printed Assortment List. On 10 Aug
+// 2026, 222 of the 424 active lines disagreed: 'Basil in Pot -GCC' showed
+// kilogram against a Dish/1x25 Grm order line, and 'Egg Whole Fresh Medium'
+// showed kilogram against Ctn/12Trayx30 Pcs — so a "1" on that line is one
+// carton of 360 eggs, and the label said kilo.
+//
+// The number the chef types IS the number typed into FMC, so the label beside
+// it has to be FMC's. Where there is no fmc_unit — 13 lines — nothing is
+// invented and the line shows what it always showed.
+function mlUnitFor(it){
+  return (it && (it.fmc_unit || it.unit)) || '';
+}
+
 function mlConsolidate(weekday){
   const groups = [];
   let cur = null;
@@ -942,7 +1026,7 @@ function mlConsolidate(weekday){
     const v = mlQty[it.id+'|'+weekday];
     if(v==null) return;
     if(!cur || cur.category !== it.category){ cur = {category:it.category, items:[]}; groups.push(cur); }
-    cur.items.push({ name:it.name, unit:it.unit||'', qty:v });
+    cur.items.push({ name:it.name, unit:mlUnitFor(it), qty:v });
   });
   return groups;
 }
