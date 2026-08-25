@@ -1890,7 +1890,7 @@ async function undoDelete(){
 // â”€â”€ APP PAGES â”€â”€
 function hideAllPages(){
   if (typeof schedLockNow === 'function' && typeof schedUnlocked !== 'undefined' && schedUnlocked) schedLockNow();
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','catalogue-view','fmcmatch-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='none';
@@ -2211,6 +2211,13 @@ function openOrderInventory(){ openMarketList(); }
 // half-written recipe, which is the one thing this module must never do.
 // The way in. Three screens, one dish, one record — so they live together behind one
 // door rather than as three unrelated things on the home screen.
+// ONE door changed, 25 Aug 2026 — Danilo and Antonio. The Micros request came off the
+// page and the RECIPE BOOK took its place. The rest of the page is exactly as it was.
+//
+// The Micros request was never a PLACE. It is a thing you do to a dish or to a menu, and
+// giving it a door meant that asking for one dish to go to the till started by leaving
+// the dish. It is a button on the recipe's card in the book, and a button inside a menu.
+// Same screen, same code; only the way in is different.
 var RECIPE_SCREENS=[
   {code:'RCP', view:'recipecreate-view', page:'recipe-create.html?embed=1',
    name:'Create new recipes',
@@ -2227,10 +2234,12 @@ var RECIPE_SCREENS=[
   {code:'FIX', view:'todo-view', page:'recipe-create.html?embed=1&todo=1',
    name:'Needs finishing',
    meta:'Every recipe and batch that is not done \u2014 a line with no ingredient, no amount, a batch that has been removed. Tap one to put it right.'},
-  {code:'POS', view:'micros-view', page:'recipe-create.html?embed=1&micros=1',
-   name:'Micros request',
-   meta:'The POS form for Aung, built from the menu — till names, cost and price. Print it or send it.'}
-
+  // Where the Micros request used to be. It is the saved recipes, filed by menu — the
+  // screen they actually wanted quick access to, and the one every other way in already
+  // went through. Micros is now a button on the cards inside it.
+  {code:'BOOK', view:'recipebook-view', page:'recipe-create.html?embed=1&saved=1',
+   name:'Recipe book',
+   meta:'Every dish we have written, filed by menu. Open one to change it, send one to the till, or send a whole menu to Aung.'}
 ];
 function openRecipes(){
   activeStation=RECIPES_KEY;
@@ -2289,6 +2298,10 @@ function openRecipeScreen(viewId){
     // half-written sheet - instead of a new recipe. The tile has to mean what it says.
     // The page drops anything unsaved into its own Unsaved work list first, so a clean
     // start never costs him what he had.
+    //
+    // The Recipe book is deliberately NOT reset this way. A book that forgets where you
+    // were is a worse book: coming back to the menu you were reading is the point, and
+    // starting a new recipe from in there is its own button.
     if(s.code==='RCP'){
       var fr=v.querySelector('iframe');
       var go=function(){ try{ if(fr.contentWindow&&fr.contentWindow.__rcpNew) fr.contentWindow.__rcpNew(); }catch(e){} };
@@ -2306,7 +2319,7 @@ function openRecipeScreen(viewId){
 // starts and how tall the footer actually is, every time one opens and on every turn
 // of the screen.
 function fitRecipeScreen(){
-  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','todo-view']
+  var v=['recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','todo-view']
     .map(function(id){return document.getElementById(id);})
     .filter(function(el){return el&&el.style.display==='flex';})[0];
   if(!v) return;
@@ -2328,7 +2341,7 @@ function switchStation(key){
   if(key===CHECK_KEY){openChecklist();return;}
   activeStation=key;activeFilter=null;
   const isPass=key===PASS_KEY;
-  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
+  ['home-view','pass-view','report-view','dashboard-view','reports-view','order-view','fish-view','stocktake-view','recipes-view','recipecreate-view','recipecard-view','foodbible-view','menupdf-view','micros-view','recipebook-view','todo-view','check-view','scheduling-view','closing-view','team-view','menuplan-view','calendar-view','mytasks-view','content','legend-bar','sec-counter-wrap','add-section-wrap'].forEach(function(id){
     var el=document.getElementById(id);if(el)el.style.display='none';
   });
   document.getElementById('section-tabs').style.display='flex';
