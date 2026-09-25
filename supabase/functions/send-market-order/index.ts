@@ -5,7 +5,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-const RESEND_API_KEY = 're_DV2gjCqH_4JmjoPbm4PLanhPRoXmkiYCs';
+const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') ?? '';  // set as a function secret - never in code
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -13,7 +13,12 @@ serve(async (req) => {
       headers: {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'POST',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        // 22 Sept 2026 — widened from 'Content-Type, Authorization' for the same
+        // reason as send-stock-take: a caller that also sends an `apikey` header
+        // had its POST refused by the browser at the preflight, which surfaces
+        // as "Failed to fetch" with no request ever reaching the function. This
+        // is the set the project's other functions already accept.
+        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
       },
     });
   }
