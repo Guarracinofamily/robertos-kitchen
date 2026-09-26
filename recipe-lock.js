@@ -19,11 +19,14 @@
 // point of having one. Nothing was removed — with the code, every screen does
 // exactly what it did before.
 //
-// WHY A NEW CODE and not 1212 or 2468: both are printed on screen to the team
-// (crockery-count.js, stock-take.js tell them "an admin code (1212 / 0000 /
-// 2468)"), so they would lock the door with a key already handed out. The code
-// is kept here only as a SHA-256 hash, so reading this public file does not
-// give it away. To change it: sha256('robertos-recipe-lock:' + newCode) → CODE_HASH.
+// THE CHEF CODE IS 2468 (Francesco, 26 Sep 2026): the code the chefs already
+// use for the schedule, stock take and portion changes, so there is one code to
+// remember, not two. 1212 does not open it. Kept here as a SHA-256 hash like every
+// key below. To change a key: sha256('robertos-recipe-lock:' + newCode) → CODES.
+//
+// ANDREA FALCONE (Development Chef, writes the recipes) opens it with their own
+// employee ID (Francesco, 26 Sep 2026). A separate key, so it can be taken away
+// alone — delete that line in CODES. The name shows on the "unlocked" pill.
 //
 // HONEST LIMIT: this is a lock on the app's screens, the same kind as the
 // schedule lock — the database itself still accepts writes from the app's key
@@ -39,8 +42,12 @@
 // Everything is set on window by ASSIGNMENT (see dev-guard.js for why).
 // ──────────────────────────────────────────────────────────────────────────
 (function () {
-  var CODE_HASH = '12432a2e0785694a743792e264c1e92e720ec82416cb7ad1ef257f8952beaebb';
+  var CODES = {
+    'bbc94fdb46b4892f886f7fa134ef7641c52bf42f484e0347932afbe337a367f3': 'Chef',
+    'd299df0faa05bc94a453b9d44c1dfda9332a3f87e1e3449d47526f1e58b5aa33': 'Andrea Falcone'      // employee ID
+  };
   var KEY = 'kitchen-recipe-edit-until';
+  var WHO_KEY = 'kitchen-recipe-edit-who';
   var IDLE_MIN = 20;
 
   function now(){ return Date.now(); }
@@ -57,8 +64,10 @@
       return Array.prototype.map.call(new Uint8Array(buf), function(b){ return ('0' + b.toString(16)).slice(-2); }).join('');
     });
   }
+  function whoOpened(){ try { return sessionStorage.getItem(WHO_KEY) || ''; } catch(e){ return ''; } }
+  // Resolves to the key holder's name, or '' for a wrong code.
   function checkCode(v){
-    return sha256hex('robertos-recipe-lock:' + String(v || '').trim()).then(function(h){ return h === CODE_HASH; });
+    return sha256hex('robertos-recipe-lock:' + String(v || '').trim()).then(function(h){ return CODES[h] || ''; });
   }
 
   var CSS = [
@@ -101,10 +110,12 @@
     var busy = false;
     f.onsubmit = function(e){
       e.preventDefault(); if (busy) return; busy = true;
-      checkCode(inp.value).then(function(ok){
+      checkCode(inp.value).then(function(who){
+        var ok = !!who;
         busy = false;
-        if (!ok){ err.textContent = 'That is not the chef code.'; inp.value = ''; inp.focus(); return; }
+        if (!ok){ err.textContent = 'That code does not open the recipes.'; inp.value = ''; inp.focus(); return; }
         setUntil(now() + IDLE_MIN * 60000);
+        try { sessionStorage.setItem(WHO_KEY, who); } catch(e){}
         opts.done(true);
         try { window.dispatchEvent(new Event('recipelock-open')); } catch(e){}
       }, function(){
@@ -139,7 +150,8 @@
     if (p || !document.body) return;
     css();
     p = document.createElement('div'); p.id = 'rlk-pill';
-    p.innerHTML = '<span>&#128275; Recipes unlocked</span><button type="button">Lock</button>';
+    var who = whoOpened();
+    p.innerHTML = '<span>&#128275; Recipes unlocked' + (who && who !== 'Chef' ? ' · ' + esc(who) : '') + '</span><button type="button">Lock</button>';
     p.querySelector('button').onclick = function(){ lockNow(); };
     document.body.appendChild(p);
   }
@@ -174,7 +186,7 @@
     guarded = true;
     if (document.body) refresh(); else document.addEventListener('DOMContentLoaded', refresh);
   }
-  function lockNow(){ setUntil(0); refresh(); }
+  function lockNow(){ setUntil(0); try { sessionStorage.removeItem(WHO_KEY); } catch(e){} refresh(); }
 
   // Working on a recipe keeps it open; the idle clock only runs while nobody is.
   ['pointerdown', 'keydown'].forEach(function(t){
