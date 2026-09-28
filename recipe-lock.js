@@ -102,7 +102,7 @@
     ov.className = 'rlk' + (opts.page ? ' rlk-page' : '');
     ov.setAttribute('role', 'dialog'); ov.setAttribute('aria-modal', 'true'); ov.setAttribute('aria-labelledby', 'rlk-h');
     ov.innerHTML = '<div class="rlkp"><h4 id="rlk-h">' + esc(opts.title) + '</h4><p>' + esc(opts.body) + '</p>' +
-      '<form autocomplete="off"><input type="password" inputmode="numeric" autocomplete="off" aria-label="Chef code" placeholder="Chef code">' +
+      '<form autocomplete="off"><input type="text" style="-webkit-text-security:disc" inputmode="numeric" autocomplete="off" aria-label="Chef code" placeholder="Chef code">' +
       '<div class="rlkerr" aria-live="polite"></div><div class="rlkb">' +
       (opts.page ? '' : '<button type="button" class="rlkno">Cancel</button>') +
       '<button type="submit" class="rlkok">Unlock</button></div></form></div>';
