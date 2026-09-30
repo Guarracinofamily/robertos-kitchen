@@ -66,8 +66,19 @@
   }
   function whoOpened(){ try { return sessionStorage.getItem(WHO_KEY) || ''; } catch(e){ return ''; } }
   // Resolves to the key holder's name, or '' for a wrong code.
+  // A master code is checked by the database, never stored here.
+  function masterName(v){
+    try {
+      var u = window.SB_URL, k = window.SB_KEY; v = String(v || '').trim();
+      if (!u || !k || !v) return Promise.resolve('');
+      return fetch(u + '/rest/v1/rpc/kitchen_master_check', { method:'POST',
+        headers:{ apikey:k, Authorization:'Bearer ' + k, 'Content-Type':'application/json' },
+        body: JSON.stringify({ p_code: v }) })
+        .then(function(r){ return r.ok ? r.json() : ''; }).then(function(n){ return n || ''; }, function(){ return ''; });
+    } catch(e){ return Promise.resolve(''); }
+  }
   function checkCode(v){
-    return sha256hex('robertos-recipe-lock:' + String(v || '').trim()).then(function(h){ return CODES[h] || ''; });
+    return sha256hex('robertos-recipe-lock:' + String(v || '').trim()).then(function(h){ return CODES[h] || masterName(v); });
   }
 
   var CSS = [
