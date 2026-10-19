@@ -6,6 +6,16 @@
 // be sent — once: the row is claimed (queued|failed -> sending) before anything goes out.
 //   kind 'new'   -> the technician(s): a new job card
 //   kind 'check' -> the chefs (Danilo, Antonio): a completed card waiting for their check
+//   kind 'followup' -> the technician who has the card: a chef asked for an update on a card
+//                      nobody has moved for a day (14 Oct 2026, Chef Andrea, Send feedback ba7f8e65)
+//   kind 'tools'    -> the technicians: the month-end tools count is due (or the month ended unsigned).
+//                      No card: the row carries the month. Queued by maint_tools_remind() (cron, 09:00
+//                      Dubai) 3 days before month end and again after it if still unsigned (16 Oct 2026,
+//                      Chef Andrea, Send feedback 9d2beffc; Francesco: "Oliver gets it by email").
+//   kind 'buy'      -> the buyers (maint_people role 'buyer', Andrea Falcone): the technician asks for a
+//                      spare part or tool to be bought, with the exact model, how many, a price range
+//                      and photos. No card needed: the row carries buy_id. Sent at once (19 Oct 2026,
+//                      Chef Andrea, Send feedback 2ce28fd4 + 0dbd7f59: "it has to work like a purchase request").
 // A test card (is_test) was already addressed to Francesco only by the database; the subject
 // gets [TEST] here.
 //
@@ -27,6 +37,7 @@ const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 const jc = (n: number) => "JC-" + String(n).padStart(4, "0");
 const when = (t: string | null) => t ? new Date(t).toLocaleString("en-GB", { timeZone: "Asia/Dubai", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }) : "";
+const STATUS: Record<string, string> = { new: "New", acknowledged: "Acknowledged", in_progress: "In progress", on_hold: "On hold", completed: "Completed" };
 const aed = (v: number | null) => v == null ? "" : "AED " + Number(v).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type Card = Record<string, any>;
@@ -59,6 +70,13 @@ function build(kind: string, c: Card) {
     band = `New job card · ${jc(c.card_no)}`;
     intro = c.source === "calendar" ? "A job on the maintenance calendar is past its date, so it has opened a job card." : "A new maintenance problem has been reported in the kitchen.";
     rows = newRows(c);
+  } else if (kind === "followup") {
+    const by = c.followup_by || "The chef";
+    subject = `Update needed on ${jc(c.card_no)}: ${c.equipment}`;
+    band = `Update needed · ${jc(c.card_no)}`;
+    intro = `${by} is asking for an update on this job card. It has not been updated since ${when(c.updated_at || c.reported_at)}. Open it and update it: start the work, put it on hold with the reason, save the assessment, or complete it.`;
+    rows = [["Equipment", `${c.equipment} (${c.location})`], ["Problem", c.problem], ["Status", (STATUS[c.status] || c.status) + (c.status === "on_hold" && c.hold_reason ? `: ${c.hold_reason}` : "")],
+      ["Reported by", `${c.reported_by}, ${when(c.reported_at)}`], ["Asked by", `${by}, ${when(c.followup_at)}`]];
   } else {
     subject = `${jc(c.card_no)} is ready for your check: ${c.equipment}`;
     band = `Ready for your check · ${jc(c.card_no)}`;
@@ -88,6 +106,77 @@ function buildMany(cards: Card[]) {
   return { subject, text, html };
 }
 
+// The month-end tools count. The numbers come from the database at the moment of sending.
+const TOOLS_LINK = APP + "maintenance.html?tab=tools";
+async function buildTools(sb: any, m: any) {
+  const month: string = m.month; // 'YYYY-MM-01'
+  const name = new Date(month + "T12:00:00Z").toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+  const d = new Date(month + "T12:00:00Z"); d.setUTCMonth(d.getUTCMonth() + 1); d.setUTCDate(0);
+  const last = d.toISOString().slice(0, 10);
+  const lastSay = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+  const sentDay = new Date(m.created_at).toLocaleDateString("en-CA", { timeZone: "Asia/Dubai" });
+  const late = sentDay > last;
+  const tools = await sb.from("maint_tools").select("id", { count: "exact", head: true }).eq("active", true);
+  const counted = await sb.from("maint_tool_counts").select("tool_id", { count: "exact", head: true }).eq("month", month);
+  if (tools.error || counted.error) throw new Error("tools not read");
+  const n = tools.count ?? 0, c = counted.count ?? 0;
+  const subject = late ? `Tools count for ${name} is not signed yet` : `Month-end tools count: ${name}`;
+  const band = late ? `Tools count overdue · ${name}` : `Month-end tools count · ${name}`;
+  const intro = late
+    ? `${name} has ended and its tools count is not signed. Count every tool, then sign the count with your staff code.`
+    : `It is time for the month-end tools count. Count every tool on the list, type how many you find, then sign the count with your staff code by ${lastSay}.`;
+  const rows: [string, string][] = [["Month", name], ["Tools on the list", String(n)], ["Counted so far", `${c} of ${n}`], ["Sign by", late ? "Now, the month is over" : lastSay]];
+  const text = intro + "\n\n" + rows.map(([k, v]) => `${k}: ${v}`).join("\n") + "\n\nOpen the tools count: " + TOOLS_LINK + "\n\n" + FOOT;
+  const html = shell(band, '<p style="margin:14px 18px">' + esc(intro) + "</p>" + tableOf(rows) + buttonOf(TOOLS_LINK, "Open the tools count"));
+  return { subject, text, html };
+}
+
+// A purchase request. The photos go with the mail as attachments, so the buyer has them in the shop:
+// Outlook strips an <img> that points outside the mail, so a picture in the body alone arrives empty.
+const BUY_LINK = (id: string) => APP + "maintenance.html?tab=buy&buy=" + id;
+const mediaPublic = (p: string) => (Deno.env.get("SUPABASE_URL") ?? "") + "/storage/v1/object/public/maint-media/" + p.split("/").map(encodeURIComponent).join("/");
+const bn = (n: number) => "PR-" + String(n).padStart(4, "0");
+async function buildBuy(sb: any, m: any) {
+  const got = await sb.from("maint_buys").select("*").eq("id", m.buy_id).maybeSingle();
+  if (got.error || !got.data) throw new Error("request not found");
+  const b = got.data;
+  let card = "";
+  if (b.card_id) {
+    const c = await sb.from("maint_cards").select("card_no,equipment").eq("id", b.card_id).maybeSingle();
+    if (c.data) card = `${jc(c.data.card_no)} · ${c.data.equipment}`;
+  }
+  const range = Number(b.price_min) === Number(b.price_max) ? aed(b.price_min) : `${aed(b.price_min)} to ${aed(b.price_max)}`;
+  const photos: string[] = (b.media || []).map((x: any) => mediaPublic(x.path));
+  const subject = `To buy ${bn(b.buy_no)}: ${b.qty} × ${b.item}`;
+  const band = `To buy · ${bn(b.buy_no)}`;
+  const intro = `${b.asked_by} needs this bought. The exact model, the price range and the photos are below. When you hand it over, open the request and press Provided.`;
+  const rows: [string, string][] = [["Item", b.item], ["Exact model", b.model], ["How many", String(b.qty)], ["Price range", range + (b.qty > 1 ? " each" : "")]];
+  if (b.note) rows.push(["Note", b.note]);
+  if (card) rows.push(["For job card", card]);
+  rows.push(["Asked by", `${b.asked_by}, ${when(b.asked_at)}`], ["Photos", photos.length ? String(photos.length) : "none"]);
+  const link = BUY_LINK(b.id);
+  const text = intro + "\n\n" + rows.map(([k, v]) => `${k}: ${v}`).join("\n") + (photos.length ? "\n\n" + photos.join("\n") : "") + "\n\nOpen the request: " + link + "\n\n" + FOOT;
+  const pics = photos.length ? '<p style="margin:14px 18px 0">Photos, attached to this email and here: ' + photos.map((u, i) =>
+    '<a href="' + esc(u) + '" style="color:#410207;font-weight:bold">Photo ' + (i + 1) + "</a>").join(" · ") + "</p>" : "";
+  const attachments = photos.map((u, i) => ({ path: u, filename: `${bn(b.buy_no)}-photo-${i + 1}.${(u.split(".").pop() || "jpg").toLowerCase()}` }));
+  const html = shell(band, '<p style="margin:14px 18px">' + esc(intro) + "</p>" + tableOf(rows) + pics + buttonOf(link, "Open the request"));
+  return { subject, text, html, attachments };
+}
+
+async function sendResend(to: string[], mail: { subject: string; text: string; html: string; attachments?: { path: string; filename: string }[] }) {
+  let resendId: string | null = null, err = "";
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from: FROM, to, subject: mail.subject, text: mail.text, html: mail.html, ...(mail.attachments && mail.attachments.length ? { attachments: mail.attachments } : {}) }),
+    });
+    const d = await r.json().catch(() => null);
+    if (r.ok && d && d.id) resendId = d.id; else err = (d && (d.message || d.error)) ? String(d.message || d.error) : "HTTP " + r.status;
+  } catch (e) { err = String((e as Error).message || e); }
+  return { resendId, err };
+}
+
 const sameList = (a: string[] | null, b: string[] | null) => [...(a || [])].sort().join(",") === [...(b || [])].sort().join(",");
 
 Deno.serve(async (req) => {
@@ -105,6 +194,19 @@ Deno.serve(async (req) => {
   if (!(m.status === "queued" || (m.status === "failed" && m.tries < 3))) return json({ ok: true, skipped: m.status });
   const upd = await sb.from("maint_mail").update({ status: "sending", tries: m.tries + 1 }).eq("id", id).eq("status", m.status).select("id");
   if (upd.error || !upd.data || !upd.data.length) return json({ ok: true, skipped: "taken" });
+
+  if (m.kind === "tools" || m.kind === "buy") {
+    if (!RESEND_API_KEY) { await sb.from("maint_mail").update({ status: "failed", error: "no RESEND_API_KEY" }).eq("id", id); return json({ error: "no key" }, 500); }
+    let mail: { subject: string; text: string; html: string; attachments?: { path: string; filename: string }[] };
+    try { mail = m.kind === "buy" ? await buildBuy(sb, m) : await buildTools(sb, m); }
+    catch (e) { await sb.from("maint_mail").update({ status: "failed", error: String((e as Error).message || e).slice(0, 500) }).eq("id", id); return json({ error: m.kind + " not read" }, 500); }
+    if (m.is_test) mail.subject = "[TEST] " + mail.subject;
+    const { resendId, err } = await sendResend(m.to_list, mail);
+    await sb.from("maint_mail").update(resendId ? { status: "sent", resend_id: resendId, sent_at: new Date().toISOString(), error: null }
+                                                 : { status: "failed", error: err.slice(0, 500) }).eq("id", id);
+    console.log("maint-notify", id, m.kind, m.month || m.buy_id, resendId ? "sent " + resendId : "FAILED " + err);
+    return resendId ? json({ ok: true, id: resendId }) : json({ error: err }, 502);
+  }
 
   // a new card takes every other waiting new card for the same people with it, each claimed
   // the same guarded way, so a card can only ever ride in one email
